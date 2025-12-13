@@ -1,92 +1,333 @@
-# Agentic Stock Scout - Product Plan
+הפרומפט
 
-## Target Users
-- **Self-directed retail investors** who hold a handful of U.S. equities/ETFs and want proactive, time-horizon-aware guidance.
-- **Newer investors** with starter portfolios who need help spotting concentration risk and diversification opportunities.
-- **Side-hustle traders** seeking quick, explainable signals across many tickers without managing complex tools.
+אתה מהנדס תוכנה בכיר ומוביל מוצר. בנה מערכת מקומית (MVP) שתעזור לי לסחור במניות בארה״ב. הפיתוח צריך להיות פשוט, קל להרצה מקומית, עם ארכיטקטורה מודולרית שתאפשר להוסיף מקורות נתונים ואנליזות בעתיד.
 
-## Core Experience
-- **Manual portfolio capture**: simple add/edit/remove of tickers, quantities, and cost basis; CSV import for faster onboarding; optional watchlist separate from holdings.
-- **Multi-horizon recommendations** powered by agentic AI:
-  - **Short term (days-weeks)**: earnings/volatility catalysts, momentum shifts, and stop/trim suggestions.
-  - **Medium term (quarters)**: valuation drift vs. peers, factor exposures, capital efficiency trends, and sector rotation ideas.
-  - **Long term (years)**: moat/durability signals, balance-sheet quality, cash-flow stability, and position sizing guidance.
-- **Broad market scan**: daily sweep of a wide ticker universe to surface “interesting” candidates relevant to the user’s positions and watchlist.
-- **Contextual explanations**: each recommendation includes the evidence trail, confidence, and what to monitor next.
-- **Risk awareness**: concentration flags, drawdown exposure, and correlation hints with simple what-if tiles.
+0) עקרונות
 
-## Agentic AI Approach
-- **Planner/critic loop**: orchestrator decomposes the user goal (e.g., “find short-term trims”) into data pulls, factor checks, and scoring; critic evaluates coverage and conflict before emitting recs.
-- **Retrieval and enrichment**: combine fundamentals, consensus estimates, technical indicators, and event data; normalize to comparable factors.
-- **Persona grounding**: user risk appetite and horizon preferences shape prompts and thresholds.
-- **Transparency**: show rationale, data freshness, and which tools/skills the agent used.
+ריצה מקומית בלבד כרגע (ללא ענן).
 
-## MVP (6-10 weeks)
-- **Goal**: validate that manually-entered portfolios receive trusted, horizon-tagged recommendations that users open and act on.
-- **Scope**:
-  - Manual holdings + watchlist with CSV import.
-  - Daily market sweep (e.g., top 2–3k U.S. tickers) feeding a candidate pool.
-  - Recommendation engine producing 3–7 recs per horizon, per user, with explanations and freshness stamps.
-  - Basic risk tiles: concentration, beta/volatility bands, and simple correlation to market proxy.
-  - Feedback loop: thumbs up/down and “follow this idea” to refine future outputs.
-- **Deferred**: brokerage linking, automated trades, tax analysis, advisor collaboration, mobile app, deep backtests.
+מינימום תלות בשירותים בתשלום.
 
-## Success Criteria
-- **Adoption**: ≥70% of new users complete manual portfolio entry within first session; ≥50% import via CSV when offered.
-- **Engagement**: ≥60% open daily recommendation digest; ≥25% save or follow at least one idea/week.
-- **Quality**: ≥40% positive feedback on recs (thumbs up); <5% flagged as irrelevant to user holdings/watchlist.
-- **Reliability**: recommendation job success ≥99%; data freshness <24h for fundamentals/technicals feeds.
+מודולריות: Data Provider ניתן להחלפה, Analytics ניתנים להוספה, ו-UI יודע לצייר הכל.
 
-## Functional Scope (MVP backlog)
-- **Portfolio input/management**: add/edit/remove tickers with quantities and cost basis; CSV upload with validation; watchlist separate from holdings; persistence in relational DB.
-- **Recommendation engine**: daily candidate sweep, factor scoring per horizon, ranking, and rationale assembly with freshness stamps; tag ideas to applicable user holdings/watchlist entries.
-- **Delivery surfaces**: in-app dashboard with rec cards, saved ideas, and risk tiles; daily email/web digest toggle; horizon filters and sort by confidence/recency.
-- **Feedback loop**: thumbs up/down, “follow this idea,” and dismiss; store signals to influence future scores and to audit perceived quality.
-- **Governance**: data provenance display (source + timestamp), quota-aware data pulls, retries with backoff, and alerting on stale data or failed sweeps.
-- **Non-goals (now)**: brokerage integration, automated trading/tax views, mobile app, deep backtesting, or social/advisor sharing.
+שקיפות: כל גרף/תובנה חייב להראות מאיפה הנתון הגיע ומתי עודכן.
 
-## Technology Choices (MVP-ready)
-- **Frontend**: Next.js (React/TypeScript) for fast iteration, hydration-friendly dashboards, and Vercel-friendly deploys; UI kit such as Chakra/MUI for accessibility; Recharts (or Lightweight Charts) for price visualizations; React Query for data fetching/cache.
-- **Backend**: FastAPI (Python) for tight integration with data/ML tooling **or** NestJS (TypeScript) for monolingual stack; async task queue (Celery/RabbitMQ or BullMQ/Redis) to run market sweeps and scoring jobs; Postgres for users/holdings/recs; Redis for queues + short-lived factors.
-- **Data feeds**: Price/technicals from Polygon/IEX/Alpha Vantage; fundamentals/estimates via Financial Modeling Prep or similar; optional news/events (Finnhub/NewsAPI) if we add catalyst surfacing.
-- **Agent runtime**: LangGraph (or similar agent framework) to model planner/critic graph; tools for data fetch, factor scoring, critique, ranking, and explanation assembly; embedding store (PGVector) for retrieval of company notes and previous rationales.
-- **Infra**: Dockerized services; GitHub Actions for CI/CD (tests, lint, type checks); Observability via OpenTelemetry traces/metrics exported to Grafana/Prometheus; feature flags/config via environment + Git-backed configuration (e.g., Doppler/SOPS) for data keys.
+התוצאה צריכה להיות שימושית לסוחר: חלוקה לקבוצות + סיגנלים/תובנות + השוואות.
 
-### Technology Rationale & Guardrails
-- **Why this stack**: keeps the web and API layer TypeScript-friendly while enabling Python-first data/agent work; all choices have strong community support and hosted options for speed.
-- **Data governance**: secrets in managed store (e.g., Doppler/1Password); strict API quota tracking; schema versioning in Postgres via migrations (Alembic/Prisma).
-- **Reliability**: idempotent tasks with dedupe keys per sweep window; circuit breakers around external data; health checks on data staleness.
-- **Observability of agents**: log tool inputs/outputs, latency, and coverage metrics per horizon; persist rationales with timestamps to aid audits.
+1) טכנולוגיות מוצעות (פשוטות ומקומיות)
 
-## Monetization & Pricing (post-MVP)
-- **Free tier**: manual portfolio, watchlist, limited daily recs, and basic risk tiles.
-- **Pro subscription**: deeper scan coverage, more rec slots per horizon, premium data (fundamentals/estimates), priority refresh, and saved idea trails.
-- **Advisor/Team** (later): multi-seat accounts and client books once brokerage linking exists.
+בחר סטאק אחד, ואז תיישם.
 
-## Rollout
-- **Alpha**: invite-only cohort; manual QA on recommendations; tight feedback loop on clarity/trust.
-- **Beta**: broaden access, add scheduled digests, instrument feedback signals, and harden agent reliability.
-- **GA**: refine monetization, add mobile-friendly UX, and consider brokerage integration roadmap.
+אופציה A (מומלצת כי אתה כבר על React+TS)
 
-## Agent System Blueprint (draft)
-- **Inputs**: user holdings + watchlist (with cost basis), user risk appetite/horizon preference, market data (prices/technicals), fundamentals/estimates, optional news/events.
-- **Planner steps**:
-  1) Build user context (positions, concentration, horizons, risk appetite).
-  2) Fetch/refresh factors for candidate universe and relevant peer sets.
-  3) For each horizon: apply horizon-specific factor checks and heuristics (volatility/catalyst for short; valuation/quality for medium; moat/cash-flow resilience for long).
-  4) Rank, dedupe, and ensure coverage across user holdings/watchlist; enforce per-horizon slot counts; attach rationales + confidence.
-  5) Critic pass to verify data freshness, risk balance, and horizon coverage; re-issue missing pieces.
-  6) Emit rec payloads with evidence trail and monitoring suggestions.
-- **Storage**: Postgres for users/holdings/recommendations/feedback; Redis for queues + cached factors; PGVector for rationale/company note retrieval.
+Backend: Node.js + TypeScript + Express
 
-## Delivery & Observability Plan
-- **Dashboards**: rec cards with horizon tags, rationales, and confidence; risk tiles with concentration and volatility bands; “follow” list for tracked ideas.
-- **Digests**: daily email or in-app digest summarizing new/updated recs and flagged risks with freshness stamps.
-- **Instrumentation**: OpenTelemetry traces for agent graph steps; metrics for sweep coverage, success/failure counts, data staleness, and per-horizon latency; logs of tool inputs/outputs with redaction for PII.
-- **Quality review**: weekly sample audits of rationales and coverage; feedback trends surfaced to adjust factor weights or prompts.
+DB מקומית: SQLite (עם Prisma או Drizzle)
 
-## Delivery Milestones (example timeline)
-- **Week 1-2**: data contracts, schema design, and portfolio/watchlist UI; wire up price/fundamentals provider stubs.
-- **Week 3-4**: implement candidate sweep, factor scoring, and ranking per horizon; basic dashboards; initial digest email.
-- **Week 5-6**: critic loop, feedback signals, and observability (traces/metrics/logs); add risk tiles and rationale persistence.
-- **Week 7-8**: harden retries/quota guards, improve explanations, and run alpha cohort; collect feedback and polish UX.
+Scheduler מקומי: node-cron (או פשוט “on-demand” בלבד ב-MVP)
+
+Frontend: React + TypeScript + Vite
+
+גרפים: Recharts (או Chart.js)
+
+ניתוח/חישובים: ספריית technicalindicators / או חישוב ידני קל
+
+אופציה B (אם נוח לך אנליזה בפייתון)
+
+Backend Python (FastAPI) + pandas + ta-lib/ta
+
+Frontend נשאר React
+
+ב-MVP: אל תבנה משתמשים/הרשאות/ענן. רק local.
+
+2) הגדרת מטרות מוצר (מה המשתמש עושה)
+
+המערכת תומכת ב-3 פעולות ליבה:
+
+חלוקה לקבוצות (Groups/Clusters)
+
+קבוצות לפי סקטור/תעשייה (אם יש מקור נתונים חינמי שמספק זאת)
+
+קבוצות לפי התנהגות מחיר (Correlation/Volatility/Momentum)
+
+קבוצות ידניות שאני מגדיר (Watchlists)
+
+פקודה שלי = Fetch → Analyze → Visualize
+כשאני נותן הוראה (דרך UI או CLI):
+
+לבחור רשימת טיקרים/קבוצה
+
+להוריד נתוני מחיר/נפח (OHLCV) ממקור חינמי
+
+לבצע ניתוחים
+
+להציג תובנות בצורה גרפית + טקסט קצר ממוסגר
+
+דשבורד תובנות
+
+“מה זז היום בקבוצות שלי?”
+
+“מי חריג ביחס לקבוצה?”
+
+“איזה קבוצות מתכנסות/מתפזרות?”
+
+3) מקורות נתונים חינמיים (תכנון אבסטרקטי)
+
+צור שכבת MarketDataProvider עם ממשק אחיד, כדי שאפשר יהיה להחליף ספק בלי לשבור את המערכת.
+
+Interface (דוגמה)
+
+getDailyBars(ticker, start, end): OHLCV[]
+
+getQuote(ticker): {price, change, volume, ...}
+
+getMetadata(ticker): {name, exchange, sector?, industry?} (אופציונלי)
+
+חשוב
+
+תטפל במגבלות: rate limit, כשלי רשת, נתונים חסרים.
+
+Cache מקומי: אם כבר הורדתי נתונים לטווח תאריכים—לא להוריד שוב.
+
+4) מבנה נתונים (DB SQLite)
+
+תכנן סכימה פשוטה:
+
+tickers
+
+symbol (PK)
+
+name
+
+sector (nullable)
+
+industry (nullable)
+
+groups
+
+id (PK)
+
+name
+
+type (manual | sector | cluster)
+
+group_members
+
+group_id
+
+symbol
+
+price_bars_daily
+
+symbol
+
+date
+
+open/high/low/close/volume
+
+unique(symbol,date)
+
+analysis_runs
+
+id
+
+created_at
+
+scope (group/symbol list)
+
+provider_used
+
+parameters (JSON)
+
+analysis_results
+
+run_id
+
+symbol
+
+metrics (JSON)
+
+signals (JSON)
+
+5) אנליזות (MVP + הרחבות)
+
+צור מודול analytics/ עם פונקציות טהורות. כל אנליזה מחזירה גם “מספרים” וגם “הסבר קצר”.
+
+MVP Metrics (קל ויעיל)
+
+לכל טיקר בטווח נבחר:
+
+תשואה: 1D / 5D / 1M / 3M
+
+תנודתיות (סטיית תקן יומית * sqrt(252))
+
+Max Drawdown
+
+ממוצעים נעים: SMA20, SMA50
+
+RSI(14)
+
+Volume Z-Score (חריגת נפח)
+
+MVP Group Insights
+
+לקבוצה:
+
+“ממוצע תשואה בקבוצה” + פיזור
+
+Top/Bottom performers
+
+Outliers: טיקרים שסטו > 2 סטיות תקן מהקבוצה
+
+Heatmap Correlation (אופציונלי אם קל)
+
+Signals (פשוטים ולא “הבטחות”)
+
+“RSI נמוך/גבוה יחסית” (למשל <30 / >70)
+
+“Cross” (SMA20 חוצה SMA50)
+
+“Breakout בסיסי” (Close מעל High של 20 ימים)
+
+הדגש: להציג כ-תובנות/התראות, לא כהמלצת השקעה.
+
+6) UI / UX (מסכים)
+
+Frontend ב-React:
+
+Groups
+
+יצירת קבוצה ידנית (שם + רשימת טיקרים)
+
+צפייה בקבוצות לפי type
+
+כפתור “Analyze”
+
+Analyze Wizard
+
+בחירת קבוצה/טיקרים
+
+טווח תאריכים (ברירת מחדל: שנה אחורה)
+
+כפתור Run
+
+Results Dashboard
+
+טבלה: Symbol | 1M Return | Vol | RSI | Signal badges
+
+גרפים:
+
+גרף מחיר לטיקר שנבחר + SMA20/50
+
+בר-צ׳ארט תשואות בקבוצה
+
+Scatter: Volatility מול Return (נקודות = טיקרים)
+
+(אופציונלי) Correlation heatmap
+
+Data Status
+
+מתי עודכן לאחרונה
+
+כמה נתונים חסרים
+
+provider בשימוש
+
+7) CLI (אופציונלי אבל שימושי)
+
+הוסף פקודות:
+
+app groups list
+
+app analyze --group "AI Watchlist" --range 1y
+
+app fetch --symbols AAPL,MSFT --range 6m
+
+8) אבטחה/אחריות
+
+אין צורך לשמור מפתחות אם משתמשים בספק ללא API key.
+
+אם צריך API key: לשמור בקובץ .env מקומי בלבד.
+
+הצג Disclaimer קבוע: “מידע למטרות מידע בלבד”.
+
+9) תוכנית עבודה (Roadmap)
+שלב 1: Skeleton (יום 1)
+
+ריפו מונורפו (client/server) או שני פרויקטים
+
+DB + מודלים בסיסיים
+
+endpoint בדיקה
+
+שלב 2: Data Provider + Cache (יום 2)
+
+מימוש Provider אחד עובד
+
+שמירה ל-SQLite
+
+ריצה על טיקר יחיד
+
+שלב 3: Analytics MVP (יום 3)
+
+חישוב metrics לטווח
+
+שמירה analysis_runs + analysis_results
+
+שלב 4: UI Results (יום 4)
+
+מסך קבוצות
+
+“Analyze”
+
+טבלה + 2-3 גרפים בסיסיים
+
+שלב 5: Group Insights + Outliers (יום 5)
+
+ממוצעים/פיזור
+
+Top/Bottom
+
+חריגים + באדג׳ים
+
+10) Deliverables מדויקים
+
+בנה את הפרויקט כך שבסוף יהיו:
+
+קוד מלא לריצה מקומית
+
+README עם:
+
+התקנה
+
+איך מריצים
+
+דוגמאות קבוצות
+
+דוגמאות נתונים/סיד (tickers + group)
+
+בדיקות בסיסיות ל-analytics (unit tests)
+
+11) דרישות איכות
+
+TypeScript strict
+
+טיפול בשגיאות רשת + retries עדינים
+
+לוגים קריאים
+
+לא לכתוב “קסם” ב-UI: כל תובנה חייבת להיות מחושבת בשרת ולהוחזר כ-JSON
+
+12) פורמט API מוצע (דוגמא)
+
+POST /api/groups
+
+GET /api/groups
+
+POST /api/analyze
+
+body: { symbols: string[], range: {start,end}, metrics: string[] }
+
+GET /api/runs/:id
+
+GET /api/runs/:id/results
