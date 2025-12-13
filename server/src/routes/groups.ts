@@ -1,43 +1,52 @@
-﻿import { Router } from "express";
-import { Group, GroupCreateSchema } from "@stonx/shared";
+import { Prisma, PrismaClient } from "@prisma/client";
+import { Router } from "express";
+import { z } from "zod";
 
-const groups: Group[] = [
-  {
-    id: "mega-cap-tech",
-    name: "MegaCap Tech",
-    type: "manual",
-    symbols: ["AAPL", "MSFT", "GOOGL", "AMZN"],
-  },
-  {
-    id: "semis",
-    name: "Semiconductors",
-    type: "manual",
-    symbols: ["NVDA", "AVGO", "AMD", "TSM"],
-  },
-  {
-    id: "energy",
-    name: "Energy",
-    type: "manual",
-    symbols: ["XOM", "CVX", "COP", "SLB"],
-  },
-];
-
+const prisma = new PrismaClient();
 export const groupsRouter = Router();
 
-groupsRouter.get("/", (_req, res) => {
-  res.json({ data: groups });
+const groupCreateSchema = z.object({
+  name: z.string().min(1),
+  type: z.enum(["manual", "sector", "cluster"]).default("manual"),
 });
 
-groupsRouter.get("/:id", (req, res) => {
-  const found = groups.find((g) => g.id === req.params.id);
-  if (!found) {
+const membersReplaceSchema = z.object({
+  symbols: z.array(z.string().min(1)).default([]),
+});
+
+const formatGroup = (group: {
+  id: string;
+  name: string;
+  type: string;
+  members: { symbol: string }[];
+}) => ({
+  id: group.id,
+  name: group.name,
+  type: group.type,
+  symbols: group.members.map((m) => m.symbol),
+});
+
+groupsRouter.get("/", async (_req, res) => {
+  const groups = await prisma.group.findMany({
+    include: { members: true },
+    orderBy: { name: "asc" },
+  });
+  res.json({ data: groups.map(formatGroup) });
+});
+
+groupsRouter.get("/:id", async (req, res) => {
+  const group = await prisma.group.findUnique({
+    where: { id: req.params.id },
+    include: { members: true },
+  });
+  if (!group) {
     return res.status(404).json({ error: "Group not found" });
   }
-  res.json({ data: found });
+  res.json({ data: formatGroup(group) });
 });
 
-groupsRouter.post("/", (req, res) => {
-  const parsed = GroupCreateSchema.safeParse(req.body);
+groupsRouter.post("/", async (req, res) => {
+  const parsed = groupCreateSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
       error: "Invalid payload",
@@ -45,31 +54,76 @@ groupsRouter.post("/", (req, res) => {
     });
   }
 
-  const { name, symbols } = parsed.data;
-  const newGroup: Group = {
-    id: slugify(name),
-    name,
-    type: "manual",
-    symbols,
-  };
-  groups.push(newGroup);
-  res.status(201).json({ data: newGroup });
+  const { name, type } = parsed.data;
+  const id = slugify(name);
+
+  try {
+    const created = await prisma.group.create({
+      data: { id, name, type },
+      include: { members: true },
+    });
+    return res.status(201).json({ data: formatGroup(created) });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return res.status(400).json({ error: "Group already exists with that name" });
+    }
+    throw error;
+  }
 });
 
-groupsRouter.put("/:id/members", (req, res) => {
-  const target = groups.find((g) => g.id === req.params.id);
-  if (!target) {
-    return res.status(404).json({ error: "Group not found" });
-  }
-  const parsed = GroupCreateSchema.pick({ symbols: true }).safeParse(req.body);
+groupsRouter.put("/:id/members", async (req, res) => {
+  const parsed = membersReplaceSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
       error: "Invalid payload",
       issues: parsed.error.flatten(),
     });
   }
-  target.symbols = parsed.data.symbols;
-  res.json({ data: target });
+
+  const group = await prisma.group.findUnique({
+    where: { id: req.params.id },
+    select: { id: true },
+  });
+  if (!group) {
+    return res.status(404).json({ error: "Group not found" });
+  }
+
+  const uniqueSymbols = Array.from(new Set(parsed.data.symbols));
+  if (uniqueSymbols.length > 0) {
+    const existingTickers = await prisma.ticker.findMany({
+      where: { symbol: { in: uniqueSymbols } },
+      select: { symbol: true },
+    });
+    const missing = uniqueSymbols.filter(
+      (symbol) => !existingTickers.some((t) => t.symbol === symbol),
+    );
+    if (missing.length > 0) {
+      return res
+        .status(400)
+        .json({ error: `Unknown ticker symbols: ${missing.join(", ")}` });
+    }
+  }
+
+  const tx = [
+    prisma.groupMember.deleteMany({ where: { groupId: group.id } }),
+  ];
+
+  if (uniqueSymbols.length > 0) {
+    tx.push(
+      prisma.groupMember.createMany({
+        data: uniqueSymbols.map((symbol) => ({ groupId: group.id, symbol })),
+      }),
+    );
+  }
+
+  await prisma.$transaction(tx);
+
+  const updated = await prisma.group.findUniqueOrThrow({
+    where: { id: group.id },
+    include: { members: true },
+  });
+
+  res.json({ data: formatGroup(updated) });
 });
 
 const slugify = (name: string) =>

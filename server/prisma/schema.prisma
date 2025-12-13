@@ -1,4 +1,4 @@
-﻿generator client {
+generator client {
   provider = "prisma-client-js"
 }
 
@@ -8,32 +8,35 @@ datasource db {
 }
 
 model Ticker {
-  symbol    String         @id
-  name      String?
-  sector    String?
-  industry  String?
-  members   GroupMember[]
-  barsDaily PriceBarDaily[]
+  symbol   String  @id
+  name     String?
+  sector   String?
+  industry String?
+
+  bars     PriceBarDaily[]
+  groups   GroupMember[]
+  results  AnalysisResult[]
 }
 
 model Group {
-  id      Int           @id @default(autoincrement())
+  id      String @id @default(cuid())
   name    String
-  type    GroupType
+  type    String  // "manual" | "sector" | "cluster"
   members GroupMember[]
 }
 
 model GroupMember {
-  group    Group  @relation(fields: [groupId], references: [id])
-  groupId  Int
-  ticker   Ticker @relation(fields: [symbol], references: [symbol])
-  symbol   String
+  groupId String
+  symbol  String
+
+  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  ticker  Ticker @relation(fields: [symbol], references: [symbol], onDelete: Cascade)
 
   @@id([groupId, symbol])
+  @@index([symbol])
 }
 
 model PriceBarDaily {
-  id     Int      @id @default(autoincrement())
   symbol String
   date   DateTime
   open   Float
@@ -42,31 +45,34 @@ model PriceBarDaily {
   close  Float
   volume Float?
 
-  ticker Ticker @relation(fields: [symbol], references: [symbol])
+  ticker Ticker @relation(fields: [symbol], references: [symbol], onDelete: Cascade)
 
-  @@unique([symbol, date])
+  @@id([symbol, date])
+  @@index([date])
 }
 
 model AnalysisRun {
-  id           Int              @id @default(autoincrement())
-  createdAt    DateTime         @default(now())
-  scope        String
+  id           String   @id @default(cuid())
+  createdAt    DateTime @default(now())
+  scope        String?  // e.g. "group:<id>" or "symbols:AAPL,MSFT"
   providerUsed String?
-  parameters   Json?
+  parametersJson String? // JSON as string
+
   results      AnalysisResult[]
 }
 
 model AnalysisResult {
-  id      Int          @id @default(autoincrement())
-  run     AnalysisRun  @relation(fields: [runId], references: [id])
-  runId   Int
-  symbol  String
-  metrics Json?
-  signals Json?
-}
+  id        String   @id @default(cuid())
+  runId     String
+  symbol    String
 
-enum GroupType {
-  manual
-  sector
-  cluster
+  metricsJson String?  // JSON as string
+  signalsJson String?  // JSON as string
+
+  run       AnalysisRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  ticker    Ticker      @relation(fields: [symbol], references: [symbol], onDelete: Cascade)
+
+  @@index([runId])
+  @@index([symbol])
+  @@unique([runId, symbol])
 }

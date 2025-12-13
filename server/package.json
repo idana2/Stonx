@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "@stonx/server",
   "version": "0.1.0",
   "private": true,
@@ -12,9 +12,12 @@
     "test": "echo \"tests not added yet\"",
     "format": "prettier --check \"src/**/*.ts\""
   },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
   "dependencies": {
+    "@prisma/client": "5.22.0",
     "@stonx/shared": "workspace:*",
-    "@prisma/client": "^5.7.0",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.19.2",
@@ -30,7 +33,7 @@
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-import": "^2.29.1",
     "prettier": "^3.2.1",
-    "prisma": "^5.7.0",
+    "prisma": "5.22.0",
     "rimraf": "^5.0.5",
     "tsx": "^4.7.0",
     "typescript": "^5.4.2"
