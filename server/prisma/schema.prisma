@@ -1,0 +1,72 @@
+﻿generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Ticker {
+  symbol    String         @id
+  name      String?
+  sector    String?
+  industry  String?
+  members   GroupMember[]
+  barsDaily PriceBarDaily[]
+}
+
+model Group {
+  id      Int           @id @default(autoincrement())
+  name    String
+  type    GroupType
+  members GroupMember[]
+}
+
+model GroupMember {
+  group    Group  @relation(fields: [groupId], references: [id])
+  groupId  Int
+  ticker   Ticker @relation(fields: [symbol], references: [symbol])
+  symbol   String
+
+  @@id([groupId, symbol])
+}
+
+model PriceBarDaily {
+  id     Int      @id @default(autoincrement())
+  symbol String
+  date   DateTime
+  open   Float
+  high   Float
+  low    Float
+  close  Float
+  volume Float?
+
+  ticker Ticker @relation(fields: [symbol], references: [symbol])
+
+  @@unique([symbol, date])
+}
+
+model AnalysisRun {
+  id           Int              @id @default(autoincrement())
+  createdAt    DateTime         @default(now())
+  scope        String
+  providerUsed String?
+  parameters   Json?
+  results      AnalysisResult[]
+}
+
+model AnalysisResult {
+  id      Int          @id @default(autoincrement())
+  run     AnalysisRun  @relation(fields: [runId], references: [id])
+  runId   Int
+  symbol  String
+  metrics Json?
+  signals Json?
+}
+
+enum GroupType {
+  manual
+  sector
+  cluster
+}

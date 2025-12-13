@@ -1,0 +1,22 @@
+﻿{
+  "name": "stonx",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Local-only MVP for stock groups: fetch, analyze, visualize.",
+  "workspaces": [
+    "server",
+    "client",
+    "packages/shared"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces",
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "format": "npm run format --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=18.18"
+  },
+  "packageManager": "npm"
+}

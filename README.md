@@ -1,2 +1,0 @@
-# Stonx
-stocks predictions 
