@@ -2,6 +2,7 @@
 import dotenv from "dotenv";
 import express from "express";
 import morgan from "morgan";
+import { analysisRouter } from "./routes/analyze.js";
 import { groupsRouter } from "./routes/groups.js";
 
 dotenv.config();
@@ -20,6 +21,7 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.use("/api/groups", groupsRouter);
+app.use("/api", analysisRouter);
 
 const port = Number(process.env.PORT ?? 3001);
 app.listen(port, () => {

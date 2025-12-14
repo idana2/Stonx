@@ -97,6 +97,47 @@ button {
   color: #0b1220;
 }
 
+.group-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.group-row .pill {
+  margin-right: 6px;
+}
+
+.delete-btn {
+  width: auto;
+  padding: 6px 10px;
+  margin-top: 0;
+  background: transparent;
+  border: 1px solid #ef4444;
+  color: #f87171;
+  border-radius: 8px;
+  min-width: 34px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.delete-btn:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.12);
+  color: #fecdd3;
+}
+
+.delete-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.price-selector {
+  margin-bottom: 8px;
+}
+
+.price-chart {
+  width: 100%;
+  max-width: 100%;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

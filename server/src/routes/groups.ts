@@ -8,6 +8,7 @@ export const groupsRouter = Router();
 const groupCreateSchema = z.object({
   name: z.string().min(1),
   type: z.enum(["manual", "sector", "cluster"]).default("manual"),
+  symbols: z.array(z.string().min(1)).default([]),
 });
 
 const membersReplaceSchema = z.object({
@@ -49,20 +50,44 @@ groupsRouter.post("/", async (req, res) => {
   const parsed = groupCreateSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
-      error: "Invalid payload",
-      issues: parsed.error.flatten(),
+      error: { message: "Invalid payload", details: parsed.error.flatten() },
     });
   }
 
-  const { name, type } = parsed.data;
+  const { name, type, symbols } = parsed.data;
   const id = slugify(name);
+  const uniqueSymbols = Array.from(new Set(symbols));
+
+  // Ensure tickers exist for provided symbols.
+  if (uniqueSymbols.length > 0) {
+    await Promise.all(
+      uniqueSymbols.map((symbol) =>
+        prisma.ticker.upsert({
+          where: { symbol },
+          update: {},
+          create: { symbol },
+        }),
+      ),
+    );
+  }
 
   try {
     const created = await prisma.group.create({
       data: { id, name, type },
+    });
+
+    if (uniqueSymbols.length > 0) {
+      await prisma.groupMember.createMany({
+        data: uniqueSymbols.map((symbol) => ({ groupId: created.id, symbol })),
+      });
+    }
+
+    const withMembers = await prisma.group.findUniqueOrThrow({
+      where: { id: created.id },
       include: { members: true },
     });
-    return res.status(201).json({ data: formatGroup(created) });
+
+    return res.status(201).json({ data: formatGroup(withMembers) });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       return res.status(400).json({ error: "Group already exists with that name" });
@@ -75,8 +100,7 @@ groupsRouter.put("/:id/members", async (req, res) => {
   const parsed = membersReplaceSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
-      error: "Invalid payload",
-      issues: parsed.error.flatten(),
+      error: { message: "Invalid payload", details: parsed.error.flatten() },
     });
   }
 
@@ -90,18 +114,15 @@ groupsRouter.put("/:id/members", async (req, res) => {
 
   const uniqueSymbols = Array.from(new Set(parsed.data.symbols));
   if (uniqueSymbols.length > 0) {
-    const existingTickers = await prisma.ticker.findMany({
-      where: { symbol: { in: uniqueSymbols } },
-      select: { symbol: true },
-    });
-    const missing = uniqueSymbols.filter(
-      (symbol) => !existingTickers.some((t) => t.symbol === symbol),
+    await Promise.all(
+      uniqueSymbols.map((symbol) =>
+        prisma.ticker.upsert({
+          where: { symbol },
+          update: {},
+          create: { symbol },
+        }),
+      ),
     );
-    if (missing.length > 0) {
-      return res
-        .status(400)
-        .json({ error: `Unknown ticker symbols: ${missing.join(", ")}` });
-    }
   }
 
   const tx = [
@@ -124,6 +145,19 @@ groupsRouter.put("/:id/members", async (req, res) => {
   });
 
   res.json({ data: formatGroup(updated) });
+});
+
+groupsRouter.delete("/:id", async (req, res) => {
+  const group = await prisma.group.findUnique({
+    where: { id: req.params.id },
+    select: { id: true },
+  });
+  if (!group) {
+    return res.status(404).json({ error: "Group not found" });
+  }
+
+  await prisma.group.delete({ where: { id: group.id } });
+  return res.status(204).end();
 });
 
 const slugify = (name: string) =>
