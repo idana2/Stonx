@@ -37,7 +37,17 @@ const parseJson = <T>(value: string | null | undefined): T | null => {
 
 const pricesQuerySchema = z.object({
   symbol: z.string().min(1),
+  range: z.enum(["1d", "1w", "1m", "3m", "6m", "1y"]).default("1m"),
 });
+
+const RANGE_DAYS: Record<z.infer<typeof pricesQuerySchema>["range"], number> = {
+  "1d": 2,
+  "1w": 7,
+  "1m": 30,
+  "3m": 90,
+  "6m": 180,
+  "1y": 365,
+};
 
 analysisRouter.get("/prices", async (req, res) => {
   const parsed = pricesQuerySchema.safeParse(req.query);
@@ -45,10 +55,10 @@ analysisRouter.get("/prices", async (req, res) => {
     return res.status(400).json(makeValidationError(parsed.error));
   }
 
-  const { symbol } = parsed.data;
+  const { symbol, range } = parsed.data;
   const end = new Date();
   const start = new Date(end);
-  start.setUTCDate(end.getUTCDate() - 30);
+  start.setUTCDate(end.getUTCDate() - RANGE_DAYS[range]);
 
   try {
     const { bars } = await ensureBars(
