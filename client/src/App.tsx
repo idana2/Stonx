@@ -1,4 +1,4 @@
-import { FileText, Pencil, Play, Plus, Save, Trash2, X } from "lucide-react";
+import { Activity, BarChart3, BarChart4, Pencil, Play, Plus, Save, Trash2, TrendingDown, TrendingUp, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 type Group = { id: string; name: string; type: string; symbols: string[] };
@@ -375,12 +375,16 @@ function App() {
     }
   };
 
-  const toggleFundamentals = (symbol: string) => {
-    setFundamentalsOpen((prev) => (prev === symbol ? null : symbol));
+  const openFundamentals = (symbol: string) => {
+    setFundamentalsOpen(symbol);
     const cached = fundamentalsCache[symbol];
     if (!cached || cached.status === "idle" || cached.status === "error") {
       loadFundamentals(symbol);
     }
+  };
+
+  const closeFundamentals = () => {
+    setFundamentalsOpen(null);
   };
 
   const loadValuations = async (symbols: string[]) => {
@@ -698,7 +702,7 @@ function App() {
                 `Avg ratio (last N): ${(recentRatioSum / recentCount).toFixed(2)}x`,
                 `Days >= ${spikeThreshold}x: ${recentSpikeDays}`,
                 `Days >= ${extremeThreshold}x: ${recentExtremeDays}`,
-              ].join("\n");
+              ].join("");
               nextSpikeEntries[sym] = {
                 label: "Volume spike (extreme)",
                 tooltip,
@@ -712,7 +716,7 @@ function App() {
                 `Peak ratio: ${recentMaxRatio.toFixed(2)}x`,
                 `Avg ratio (last N): ${(recentRatioSum / recentCount).toFixed(2)}x`,
                 `Days >= ${spikeThreshold}x: ${recentSpikeDays}`,
-              ].join("\n");
+              ].join("");
               nextSpikeEntries[sym] = {
                 label: "Volume spike",
                 tooltip,
@@ -912,8 +916,8 @@ function App() {
 
   const scoreTone = (score: number | null | undefined) => {
     if (score === null || score === undefined) return "score-pill score-pill-muted";
-    if (score <= 30) return "score-pill score-pill-good";
-    if (score >= 70) return "score-pill score-pill-warn";
+    if (score >= 70) return "score-pill score-pill-good";
+    if (score >= 40) return "score-pill score-pill-warn";
     return "score-pill score-pill-bad";
   };
 
@@ -971,10 +975,181 @@ function App() {
         : "Elevated volatility and drawdown"
     : "";
 
-  const renderSignals = (signals: string[]) => {
-    if (!signals || signals.length === 0) return "-";
-    return safeText(signals.join(", "));
-  };
+  type SignalTone = "positive" | "neutral" | "negative";
+
+type SignalItem = {
+  key: string;
+  shortLabel: string;
+  label: string;
+  tone: SignalTone;
+  timeframe: string;
+  takeaway: string;
+  metrics?: string;
+  detail?: string;
+  icon: typeof TrendingUp;
+};
+
+const buildSignalItems = (
+  row: AnalyzeResultRow,
+  spike: { label: string; tooltip: string } | null,
+): SignalItem[] => {
+  const items: SignalItem[] = [];
+  const { return1M, return3M, rsi14, volAnn, maxDrawdown } = row.metrics ?? {};
+  const signals = row.signals ?? [];
+
+  for (const signal of signals) {
+    switch (signal) {
+      case "MOMENTUM_NEG_LAST_MONTH":
+        items.push({
+          key: signal,
+          shortLabel: "Mom -1M",
+          label: "Momentum down",
+          tone: "negative",
+          timeframe: "last 1M",
+          takeaway: "Momentum weakening last month",
+          metrics: `1M ${formatPercent(return1M)}%, 3M ${formatPercent(return3M)}%`,
+          icon: TrendingDown,
+        });
+        break;
+      case "MOMENTUM_POS":
+        items.push({
+          key: signal,
+          shortLabel: "Mom +1M",
+          label: "Momentum up",
+          tone: "positive",
+          timeframe: "last 1M",
+          takeaway: "Momentum improving last month",
+          metrics: `1M ${formatPercent(return1M)}%, 3M ${formatPercent(return3M)}%`,
+          icon: TrendingUp,
+        });
+        break;
+      case "RSI_OVERBOUGHT":
+        items.push({
+          key: signal,
+          shortLabel: "RSI high",
+          label: "RSI overbought",
+          tone: "negative",
+          timeframe: "current",
+          takeaway: "RSI overbought (pullback risk)",
+          metrics: `RSI ${formatMetricValue(rsi14)}`,
+          icon: Activity,
+        });
+        break;
+      case "RSI_OVERSOLD":
+        items.push({
+          key: signal,
+          shortLabel: "RSI low",
+          label: "RSI oversold",
+          tone: "positive",
+          timeframe: "current",
+          takeaway: "RSI oversold (rebound watch)",
+          metrics: `RSI ${formatMetricValue(rsi14)}`,
+          icon: Activity,
+        });
+        break;
+      case "DRAWDOWN_ELEVATED":
+        items.push({
+          key: signal,
+          shortLabel: "Drawdown",
+          label: "Drawdown elevated",
+          tone: "negative",
+          timeframe: "recent",
+          takeaway: "Elevated drawdown risk",
+          metrics: `DD ${formatPercent(maxDrawdown)}%, Vol ${formatPercent(volAnn)}%`,
+          icon: Activity,
+        });
+        break;
+      default:
+        items.push({
+          key: signal,
+          shortLabel: signal,
+          label: signal.replace(/_/g, " "),
+          tone: "neutral",
+          timeframe: "recent",
+          takeaway: signal.replace(/_/g, " "),
+          icon: Activity,
+        });
+        break;
+    }
+  }
+
+  if (spike) {
+    items.push({
+      key: "VOLUME_SPIKE",
+      shortLabel: "Vol spike",
+      label: spike.label,
+      tone: "neutral",
+      timeframe: "recent sessions",
+      takeaway: "Volume spike in recent sessions",
+      detail: spike.tooltip,
+      icon: BarChart3,
+    });
+  }
+
+  const priority = [
+    "MOMENTUM_NEG_LAST_MONTH",
+    "DRAWDOWN_ELEVATED",
+    "RSI_OVERBOUGHT",
+    "VOLUME_SPIKE",
+    "MOMENTUM_POS",
+    "RSI_OVERSOLD",
+  ];
+
+  return items.sort((a, b) => {
+    const aIndex = priority.indexOf(a.key);
+    const bIndex = priority.indexOf(b.key);
+    const aRank = aIndex === -1 ? 99 : aIndex;
+    const bRank = bIndex === -1 ? 99 : bIndex;
+    return aRank - bRank;
+  });
+};
+
+const renderSignals = (
+  row: AnalyzeResultRow,
+  spike: { label: string; tooltip: string } | null,
+) => {
+  const items = buildSignalItems(row, spike);
+  if (items.length === 0) return "-";
+  const inlineItems = items.slice(0, 2);
+  const primary = items[0];
+
+  return (
+    <div className="signals-cell">
+      <div className="signal-list">
+        {inlineItems.map((item) => {
+          const Icon = item.icon;
+          return (
+            <span key={item.key} className={`signal-tag signal-flag signal-${item.tone}`}>
+              <Icon size={12} aria-hidden="true" />
+              {item.shortLabel}
+            </span>
+          );
+        })}
+      </div>
+      <div className="signal-panel" role="tooltip" aria-hidden="true">
+        <div className="signal-title">{primary.takeaway}</div>
+        <ul className="signal-details">
+          {items.map((item) => {
+            const Icon = item.icon;
+            const meta = [item.timeframe, item.metrics].filter(Boolean).join(" | ");
+            return (
+              <li key={`${item.key}-detail`}>
+                <span className={`signal-bullet signal-${item.tone}`}>
+                  <Icon size={12} aria-hidden="true" />
+                </span>
+                <div>
+                  <div className="signal-name">{item.label}</div>
+                  {meta ? <div className="signal-meta">{meta}</div> : null}
+                  {item.detail ? <div className="signal-sub">{item.detail}</div> : null}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </div>
+  );
+};
 
   return (
     <div className="app-shell">
@@ -1704,24 +1879,23 @@ function App() {
                           volumeSpikeCache[row.symbol]?.range === priceRange
                             ? volumeSpikeCache[row.symbol]
                             : null;
-                        const spikeLabel = spike?.label ?? null;
-                        const showSpikeInSignals = Boolean(spikeLabel) && row.signals.length < 3;
                         const trendReason = buildTrendReason(row);
                         const momentumReason = buildMomentumReason(row);
                         const riskReason = buildRiskReason(row);
                         return (
                           <>
                       <td>
-                        <div className="symbol-cell">
+                        <div className="symbol-cell" onMouseEnter={() => openFundamentals(row.symbol)} onMouseLeave={closeFundamentals}>
                           <span>{row.symbol}</span>
                           <button
                             type="button"
                             className="fundamentals-btn"
                             title="Fundamentals"
-                            onClick={() => toggleFundamentals(row.symbol)}
+                            onFocus={() => openFundamentals(row.symbol)}
+                            onBlur={closeFundamentals}
                             aria-label={`Fundamentals for ${row.symbol}`}
                           >
-                            <FileText size={14} aria-hidden="true" />
+                            <BarChart4 size={20} aria-hidden="true" />
                           </button>
                           {fundamentalsOpen === row.symbol && (
                             <div
@@ -1835,23 +2009,7 @@ function App() {
                       <td>{formatMetricValue(row.metrics.return1M)}</td>
                       <td>{formatMetricValue(row.metrics.volAnn)}</td>
                       <td className={rsiClass(row.metrics.rsi14)}>{formatMetricValue(row.metrics.rsi14)}</td>
-                      <td>
-                        {renderSignals(row.signals)}
-                        {showSpikeInSignals && (
-                          <span
-                            className="signal-tag volume-spike"
-                            tabIndex={0}
-                            aria-label={spike?.tooltip}
-                          >
-                            {spikeLabel}
-                            {spike?.tooltip && (
-                              <span className="signal-tooltip" role="tooltip" aria-hidden="true">
-                                {spike.tooltip}
-                              </span>
-                            )}
-                          </span>
-                        )}
-                      </td>
+                      <td>{renderSignals(row, spike)}</td>
                       <td>
                         <span
                           className={`insight-pill ${trendClass(row.insights?.trend)}`}
@@ -1890,28 +2048,7 @@ function App() {
                       </td>
                       <td>
                         <div className="summary-cell">
-                          {safeText(row.insights?.summary)}
-                          {!showSpikeInSignals && spikeLabel ? (
-                            <div className="volume-spike-note">
-                              <span
-                                className="signal-tag volume-spike"
-                                tabIndex={0}
-                                aria-label={spike?.tooltip}
-                              >
-                                {spikeLabel}
-                                {spike?.tooltip && (
-                                  <span
-                                    className="signal-tooltip"
-                                    role="tooltip"
-                                    aria-hidden="true"
-                                  >
-                                    {spike.tooltip}
-                                  </span>
-                                )}
-                              </span>
-                            </div>
-                          ) : null}
-                          {row.insights?.anomalies?.length ? (
+                          {safeText(row.insights?.summary)}{row.insights?.anomalies?.length ? (
                             <div className="anomaly-list">
                               {safeText(row.insights.anomalies.join(", "))}
                             </div>
@@ -2179,7 +2316,7 @@ function PriceChart({
           const x = scaleX(idx) - barWidth / 2;
           const y = volumeY(volume);
           const h = height - padding - y;
-          const tooltip = `Price: ${point.close.toFixed(2)}\nVolume: ${formatVolume(volume)}`;
+          const tooltip = `Price: ${point.close.toFixed(2)}Volume: ${formatVolume(volume)}`;
           return (
             <rect key={`vol-${point.date}`} x={x} y={y} width={barWidth} height={h} fill={fill}>
               <title>{tooltip}</title>
@@ -2196,7 +2333,7 @@ function PriceChart({
             {s.points.map((p, i) => {
               const volumeLabel =
                 hasVolume && p.volume !== null && p.volume !== undefined
-                  ? `\nVolume: ${formatVolume(p.volume)}`
+                  ? `Volume: ${formatVolume(p.volume)}`
                   : "";
               const tooltip = `Price: ${p.close.toFixed(2)}${volumeLabel}`;
               return (
@@ -2222,6 +2359,15 @@ function PriceChart({
   );
 }
 export default App;
+
+
+
+
+
+
+
+
+
 
 
 
