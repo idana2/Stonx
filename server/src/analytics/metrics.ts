@@ -168,7 +168,7 @@ export const buildSignals = (metrics: BasicMetrics): string[] => {
   }
   if (metrics.return1M !== null) {
     if (metrics.return1M >= 5) signals.push("MOMENTUM_POS");
-    else if (metrics.return1M <= -5) signals.push("MOMENTUM_NEG");
+    else if (metrics.return1M <= -5) signals.push("MOMENTUM_NEG_LAST_MONTH");
   }
   return signals;
 };

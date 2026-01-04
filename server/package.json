@@ -9,7 +9,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "lint": "eslint . --ext .ts --max-warnings=0",
-    "test": "tsx src/analytics/metrics.test.ts",
+    "test": "tsx src/analytics/metrics.test.ts && tsx src/analytics/insights.test.ts",
     "format": "prettier --check \"src/**/*.ts\""
   },
   "prisma": {

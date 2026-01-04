@@ -16,6 +16,7 @@ model Ticker {
   bars     PriceBarDaily[]
   groups   GroupMember[]
   results  AnalysisResult[]
+  fundamentals FundamentalQuarter[]
 }
 
 model Group {
@@ -75,4 +76,46 @@ model AnalysisResult {
   @@index([runId])
   @@index([symbol])
   @@unique([runId, symbol])
+}
+
+model FundamentalQuarter {
+  symbol             String
+  periodEnd          DateTime
+  fiscalYear         Int?
+  fiscalQuarter      Int?
+  currency           String?
+
+  revenue            Float?
+  grossProfit        Float?
+  operatingIncome    Float?
+  netIncome          Float?
+  epsBasic           Float?
+  epsDiluted         Float?
+
+  totalAssets        Float?
+  totalLiabilities   Float?
+  cashAndEquivalents Float?
+  totalDebt          Float?
+  sharesOutstanding  Float?
+
+  epsTtm             Float?
+  priceAsOf          DateTime?
+  priceClose         Float?
+  peTtm              Float?
+
+  source             String
+  fetchedAt          DateTime @default(now())
+
+  ticker             Ticker @relation(fields: [symbol], references: [symbol], onDelete: Cascade)
+
+  @@id([symbol, periodEnd])
+  @@index([periodEnd])
+}
+
+model FundamentalSyncState {
+  id        String   @id @default("global")
+  status    String?
+  lastRunAt DateTime?
+  lastError String?
+  updatedAt DateTime @updatedAt
 }
