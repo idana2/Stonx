@@ -1,5 +1,5 @@
 import { Activity, BarChart3, BarChart4, Pencil, Play, Plus, Save, Trash2, TrendingDown, TrendingUp, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Group = { id: string; name: string; type: string; symbols: string[] };
 
@@ -182,6 +182,26 @@ function App() {
     >
   >({});
   const [priceStatus, setPriceStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [signalsHover, setSignalsHover] = useState<string | null>(null);
+  const signalsHoverTimer = useRef<number | null>(null);
+
+  const openSignalsHover = (symbol: string) => {
+    if (signalsHoverTimer.current !== null) {
+      window.clearTimeout(signalsHoverTimer.current);
+      signalsHoverTimer.current = null;
+    }
+    setSignalsHover(symbol);
+  };
+
+  const closeSignalsHover = (symbol: string) => {
+    if (signalsHoverTimer.current !== null) {
+      window.clearTimeout(signalsHoverTimer.current);
+    }
+    signalsHoverTimer.current = window.setTimeout(() => {
+      setSignalsHover((prev) => (prev === symbol ? null : prev));
+    }, 200);
+  };
+
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
   const [draftGroupName, setDraftGroupName] = useState("");
   const [draftSymbols, setDraftSymbols] = useState("");
@@ -421,7 +441,7 @@ function App() {
     value === null || value === undefined ? "-" : value.toFixed(2);
 
   const formatCompact = (value: number | null | undefined) => {
-    if (value === null || value === undefined) return "�";
+    if (value === null || value === undefined) return "-";
     const abs = Math.abs(value);
     if (abs >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`;
     if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
@@ -430,7 +450,7 @@ function App() {
   };
 
   const formatEps = (value: number | null | undefined) =>
-    value === null || value === undefined ? "�" : value.toFixed(2);
+    value === null || value === undefined ? "-" : value.toFixed(2);
 
   const formatPe = (value: number | string | null | undefined) => {
     if (value === null || value === undefined) return "-";
@@ -447,6 +467,13 @@ function App() {
 
   const formatPercent = (value: number | null | undefined) =>
     value === null || value === undefined ? "-" : value.toFixed(1);
+
+
+  const formatPercent2 = (value: number | null | undefined) =>
+    value === null || value === undefined ? "-" : value.toFixed(2);
+
+  const formatNumber2 = (value: number | null | undefined) =>
+    value === null || value === undefined ? "-" : value.toFixed(2);
 
   const formatMetricValue = (value: number | string | null | undefined) => {
     if (value === null || value === undefined) return "-";
@@ -1007,7 +1034,7 @@ const buildSignalItems = (
           tone: "negative",
           timeframe: "last 1M",
           takeaway: "Momentum weakening last month",
-          metrics: `1M ${formatPercent(return1M)}%, 3M ${formatPercent(return3M)}%`,
+          metrics: `1M ${formatPercent2(return1M)}%, 3M ${formatPercent2(return3M)}%`,
           icon: TrendingDown,
         });
         break;
@@ -1019,7 +1046,7 @@ const buildSignalItems = (
           tone: "positive",
           timeframe: "last 1M",
           takeaway: "Momentum improving last month",
-          metrics: `1M ${formatPercent(return1M)}%, 3M ${formatPercent(return3M)}%`,
+          metrics: `1M ${formatPercent2(return1M)}%, 3M ${formatPercent2(return3M)}%`,
           icon: TrendingUp,
         });
         break;
@@ -1055,7 +1082,7 @@ const buildSignalItems = (
           tone: "negative",
           timeframe: "recent",
           takeaway: "Elevated drawdown risk",
-          metrics: `DD ${formatPercent(maxDrawdown)}%, Vol ${formatPercent(volAnn)}%`,
+          metrics: `DD ${formatPercent2(maxDrawdown)}%, Vol ${formatPercent2(volAnn)}%`,
           icon: Activity,
         });
         break;
@@ -1880,6 +1907,9 @@ const renderSignals = (
                             ? volumeSpikeCache[row.symbol]
                             : null;
                         const trendReason = buildTrendReason(row);
+                        const isSignalOpen = signalsHover === row.symbol;
+                        const handleSignalEnter = () => openSignalsHover(row.symbol);
+                        const handleSignalLeave = () => closeSignalsHover(row.symbol);
                         const momentumReason = buildMomentumReason(row);
                         const riskReason = buildRiskReason(row);
                         return (
@@ -2009,7 +2039,7 @@ const renderSignals = (
                       <td>{formatMetricValue(row.metrics.return1M)}</td>
                       <td>{formatMetricValue(row.metrics.volAnn)}</td>
                       <td className={rsiClass(row.metrics.rsi14)}>{formatMetricValue(row.metrics.rsi14)}</td>
-                      <td>{renderSignals(row, spike)}</td>
+                      <td>{renderSignals(row, spike, isSignalOpen, handleSignalEnter, handleSignalLeave)}</td>
                       <td>
                         <span
                           className={`insight-pill ${trendClass(row.insights?.trend)}`}
@@ -2359,6 +2389,21 @@ function PriceChart({
   );
 }
 export default App;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

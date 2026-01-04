@@ -1080,7 +1080,9 @@ td {
   position: absolute;
   left: 0;
   top: calc(100% + 6px);
-  width: 280px;
+  width: 360px;
+  max-width: 400px;
+  line-height: 1.4;
   background: #0b1220;
   border: 1px solid #1f2937;
   border-radius: 12px;
@@ -1093,6 +1095,7 @@ td {
   z-index: 40;
 }
 
+.signals-cell.open .signal-panel,
 .signals-cell:hover .signal-panel,
 .signals-cell:focus-within .signal-panel,
 .signal-panel:hover {
@@ -1105,6 +1108,22 @@ td {
   font-size: 12px;
   font-weight: 600;
   color: #e2e8f0;
+}
+
+.signal-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.signal-meta-item {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.1);
+  border: 1px solid rgba(148, 163, 184, 0.2);
 }
 
 .signal-details {
@@ -1156,7 +1175,7 @@ td {
   color: #94a3b8;
 }
 
-.signal-sub {
+.signal-extra {
   margin-top: 4px;
   font-size: 11px;
   color: #cbd5e1;
