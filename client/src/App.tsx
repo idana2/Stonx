@@ -1,4 +1,4 @@
-import { Activity, BarChart3, BarChart4, Pencil, Play, Plus, Save, Trash2, TrendingDown, TrendingUp, X } from "lucide-react";
+import { Activity, BarChart3, BarChart4, Maximize2, Pencil, Play, Plus, Save, Trash2, TrendingDown, TrendingUp, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type Group = { id: string; name: string; type: string; symbols: string[] };
@@ -168,7 +168,14 @@ function App() {
   const [priceSeries, setPriceSeries] = useState<
     {
       symbol: string;
-      points: { date: string; close: number; open?: number | null; volume?: number | null }[];
+      points: {
+        date: string;
+        close: number;
+        open?: number | null;
+        high?: number | null;
+        low?: number | null;
+        volume?: number | null;
+      }[];
     }[]
   >([]);
   const [volumeSpikeCache, setVolumeSpikeCache] = useState<
@@ -184,6 +191,16 @@ function App() {
   const [priceStatus, setPriceStatus] = useState<"idle" | "loading" | "error">("idle");
   const [signalsHover, setSignalsHover] = useState<string | null>(null);
   const signalsHoverTimer = useRef<number | null>(null);
+  const [fullScreenOpen, setFullScreenOpen] = useState(false);
+  const [fullScreenSymbol, setFullScreenSymbol] = useState<string | null>(null);
+  const [fullScreenIndicators, setFullScreenIndicators] = useState({
+    ma20: true,
+    ma50: true,
+    rsi: true,
+    benchmark: false,
+    benchmarkSymbol: "SPY",
+  });
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const openSignalsHover = (symbol: string) => {
     if (signalsHoverTimer.current !== null) {
@@ -201,6 +218,44 @@ function App() {
       setSignalsHover((prev) => (prev === symbol ? null : prev));
     }, 200);
   };
+
+  const openFullScreenChart = (symbol: string) => {
+    setFullScreenSymbol(symbol);
+    setFullScreenOpen(true);
+  };
+
+  const closeFullScreenChart = () => {
+    setFullScreenOpen(false);
+  };
+
+  useEffect(() => {
+    if (!fullScreenOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setFullScreenOpen(false);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [fullScreenOpen]);
+
+  useEffect(() => {
+    if (!fullScreenOpen) return;
+    const { documentElement, body } = document;
+    const prevOverflow = documentElement.style.overflow;
+    const prevPaddingRight = body.style.paddingRight;
+    const scrollbarWidth = window.innerWidth - documentElement.clientWidth;
+    documentElement.style.overflow = "hidden";
+    if (scrollbarWidth > 0) {
+      body.style.paddingRight = `${scrollbarWidth}px`;
+    }
+    closeButtonRef.current?.focus();
+    return () => {
+      documentElement.style.overflow = prevOverflow;
+      body.style.paddingRight = prevPaddingRight;
+    };
+  }, [fullScreenOpen]);
 
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
   const [draftGroupName, setDraftGroupName] = useState("");
@@ -637,7 +692,14 @@ function App() {
         symbol === "ALL" ? result.map((row) => row.symbol) : symbol ? [symbol] : [];
       const series: {
         symbol: string;
-        points: { date: string; close: number; open?: number | null; volume?: number | null }[];
+        points: {
+          date: string;
+          close: number;
+          open?: number | null;
+          high?: number | null;
+          low?: number | null;
+          volume?: number | null;
+        }[];
       }[] = [];
       const spikeThreshold = 1.8;
       const extremeThreshold = 2.2;
@@ -668,6 +730,8 @@ function App() {
           date: string;
           close: number;
           open?: number | null;
+          high?: number | null;
+          low?: number | null;
           volume?: number | null;
         }[];
         series.push({
@@ -676,6 +740,8 @@ function App() {
             date: bar.date,
             close: bar.close,
             open: bar.open ?? null,
+            high: bar.high ?? null,
+            low: bar.low ?? null,
             volume: bar.volume ?? null,
           })),
         });
@@ -802,6 +868,10 @@ function App() {
       loadPrices(priceSymbol);
     }
   }, [priceSymbol, priceRange]);
+
+  const canExpandChart =
+    priceSymbol !== null && priceSymbol !== "ALL" && priceSeries.length > 0 && priceStatus === "idle";
+  const activeSymbol = priceSymbol && priceSymbol !== "ALL" ? priceSymbol : null;
 
   const handleDeleteGroup = async (id: string) => {
     setDeletingId(id);
@@ -2136,7 +2206,44 @@ const renderSignals = (
                     <div className="status error">Failed to load price data.</div>
                   )}
                   {priceStatus === "idle" && priceSeries.length > 0 && (
-                    <PriceChart series={priceSeries} />
+                    <div
+                      className={`price-chart-frame ${canExpandChart ? "is-expandable" : "is-disabled"}`}
+                      role={canExpandChart ? "button" : undefined}
+                      tabIndex={canExpandChart ? 0 : -1}
+                      aria-label={
+                        canExpandChart
+                          ? `Expand ${activeSymbol} chart`
+                          : "Select a symbol to expand"
+                      }
+                      onClick={() => {
+                        if (canExpandChart && activeSymbol) {
+                          openFullScreenChart(activeSymbol);
+                        }
+                      }}
+                      onKeyDown={(event) => {
+                        if (!canExpandChart || !activeSymbol) return;
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          openFullScreenChart(activeSymbol);
+                        }
+                      }}
+                    >
+                      <PriceChart series={priceSeries} />
+                      <button
+                        type="button"
+                        className="chart-expand-btn"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (canExpandChart && activeSymbol) {
+                            openFullScreenChart(activeSymbol);
+                          }
+                        }}
+                        disabled={!canExpandChart}
+                        aria-label={canExpandChart ? "Expand chart" : "Select a symbol to expand"}
+                      >
+                        <Maximize2 size={16} aria-hidden="true" />
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -2145,6 +2252,135 @@ const renderSignals = (
         </section>
         </div>
       </main>
+      {fullScreenOpen && fullScreenSymbol ? (
+        <div
+          className="chart-modal"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeFullScreenChart();
+            }
+          }}
+        >
+          <div className="chart-modal-card" role="dialog" aria-modal="true">
+            <div className="chart-modal-header">
+              <div className="chart-modal-title">
+                <div className="chart-modal-symbol">{fullScreenSymbol}</div>
+                <div className="chart-modal-subtitle">Full-screen inspection</div>
+              </div>
+              <div className="chart-modal-controls">
+                <div className="chart-range-group" role="group" aria-label="Time range">
+                  {(["1m", "3m", "6m", "1y"] as const).map((rangeOption) => (
+                    <button
+                      key={rangeOption}
+                      type="button"
+                      className={`chart-range-btn ${
+                        priceRange === rangeOption ? "active" : ""
+                      }`}
+                      onClick={() => setPriceRange(rangeOption)}
+                    >
+                      {rangeOption.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+                <div className="chart-indicator-group">
+                  <label className="chart-toggle">
+                    <input
+                      type="checkbox"
+                      checked={fullScreenIndicators.ma20}
+                      onChange={(event) =>
+                        setFullScreenIndicators((prev) => ({
+                          ...prev,
+                          ma20: event.target.checked,
+                        }))
+                      }
+                    />
+                    MA20
+                  </label>
+                  <label className="chart-toggle">
+                    <input
+                      type="checkbox"
+                      checked={fullScreenIndicators.ma50}
+                      onChange={(event) =>
+                        setFullScreenIndicators((prev) => ({
+                          ...prev,
+                          ma50: event.target.checked,
+                        }))
+                      }
+                    />
+                    MA50
+                  </label>
+                  <label className="chart-toggle">
+                    <input
+                      type="checkbox"
+                      checked={fullScreenIndicators.rsi}
+                      onChange={(event) =>
+                        setFullScreenIndicators((prev) => ({
+                          ...prev,
+                          rsi: event.target.checked,
+                        }))
+                      }
+                    />
+                    RSI
+                  </label>
+                  <label className="chart-toggle">
+                    <input
+                      type="checkbox"
+                      checked={fullScreenIndicators.benchmark}
+                      onChange={(event) =>
+                        setFullScreenIndicators((prev) => ({
+                          ...prev,
+                          benchmark: event.target.checked,
+                        }))
+                      }
+                    />
+                    Benchmark
+                  </label>
+                  {fullScreenIndicators.benchmark ? (
+                    <select
+                      className="chart-benchmark-select"
+                      value={fullScreenIndicators.benchmarkSymbol}
+                      onChange={(event) =>
+                        setFullScreenIndicators((prev) => ({
+                          ...prev,
+                          benchmarkSymbol: event.target.value,
+                        }))
+                      }
+                    >
+                      {priceSeries.map((series) => (
+                        <option key={series.symbol} value={series.symbol}>
+                          {series.symbol}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  className="chart-close-btn"
+                  onClick={closeFullScreenChart}
+                  ref={closeButtonRef}
+                  aria-label="Close full screen chart"
+                >
+                  <X size={18} aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+            <div className="chart-modal-body">
+              <FullScreenChart
+                series={priceSeries}
+                symbol={fullScreenSymbol}
+                benchmarkSymbol={
+                  fullScreenIndicators.benchmark ? fullScreenIndicators.benchmarkSymbol : null
+                }
+                showMA20={fullScreenIndicators.ma20}
+                showMA50={fullScreenIndicators.ma50}
+                showRSI={fullScreenIndicators.rsi}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -2212,7 +2448,14 @@ function PriceChart({
 }: {
   series: {
     symbol: string;
-    points: { date: string; close: number; open?: number | null; volume?: number | null }[];
+    points: {
+      date: string;
+      close: number;
+      open?: number | null;
+      high?: number | null;
+      low?: number | null;
+      volume?: number | null;
+    }[];
   }[];
 }) {
   if (!series.length) return null;
@@ -2386,6 +2629,302 @@ function PriceChart({
         );
       })}
     </svg>
+  );
+}
+
+function FullScreenChart({
+  series,
+  symbol,
+  benchmarkSymbol,
+  showMA20,
+  showMA50,
+  showRSI,
+}: {
+  series: {
+    symbol: string;
+    points: {
+      date: string;
+      close: number;
+      open?: number | null;
+      high?: number | null;
+      low?: number | null;
+      volume?: number | null;
+    }[];
+  }[];
+  symbol: string;
+  benchmarkSymbol: string | null;
+  showMA20: boolean;
+  showMA50: boolean;
+  showRSI: boolean;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [chartSize, setChartSize] = useState({ width: 960, height: 420 });
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    const updateSize = () => {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (rect) {
+        setChartSize({ width: Math.max(rect.width, 320), height: Math.max(rect.height, 240) });
+      }
+    };
+    updateSize();
+    window.addEventListener("resize", updateSize);
+    return () => window.removeEventListener("resize", updateSize);
+  }, []);
+
+  const primarySeries = series.find((s) => s.symbol === symbol) ?? series[0];
+  if (!primarySeries || primarySeries.points.length === 0) return null;
+
+  const benchmarkSeries = benchmarkSymbol
+    ? series.find((s) => s.symbol === benchmarkSymbol)
+    : undefined;
+  const points = primarySeries.points;
+  const width = chartSize.width;
+  const height = chartSize.height;
+  const padding = 48;
+  const chartHeight = showRSI ? height * 0.72 : height;
+  const rsiHeight = Math.max(110, height * 0.22);
+  const maxPoints = points.length;
+  const closes = points.map((p) => p.close);
+  const minY = Math.min(...closes);
+  const maxY = Math.max(...closes);
+  const scaleX = (i: number) =>
+    padding + (i / Math.max(maxPoints - 1, 1)) * (width - padding * 2);
+  const scaleY = (v: number) =>
+    chartHeight - padding - ((v - minY) / Math.max(maxY - minY, 1)) * (chartHeight - padding * 2);
+
+  const movingAverage = (windowSize: number) => {
+    const values: (number | null)[] = [];
+    for (let i = 0; i < points.length; i += 1) {
+      if (i < windowSize - 1) {
+        values.push(null);
+        continue;
+      }
+      const slice = points.slice(i - windowSize + 1, i + 1);
+      const sum = slice.reduce((acc, p) => acc + p.close, 0);
+      values.push(sum / windowSize);
+    }
+    return values;
+  };
+
+  const rsi = (() => {
+    const windowSize = 14;
+    const values: (number | null)[] = [];
+    let gainSum = 0;
+    let lossSum = 0;
+    for (let i = 1; i < points.length; i += 1) {
+      const change = points[i].close - points[i - 1].close;
+      gainSum += Math.max(0, change);
+      lossSum += Math.max(0, -change);
+      if (i < windowSize) {
+        values.push(null);
+        continue;
+      }
+      if (i === windowSize) {
+        gainSum /= windowSize;
+        lossSum /= windowSize;
+      } else {
+        gainSum = (gainSum * (windowSize - 1) + Math.max(0, change)) / windowSize;
+        lossSum = (lossSum * (windowSize - 1) + Math.max(0, -change)) / windowSize;
+      }
+      const rs = lossSum === 0 ? 100 : gainSum / lossSum;
+      values.push(100 - 100 / (1 + rs));
+    }
+    return [null, ...values];
+  })();
+
+  const ma20 = showMA20 ? movingAverage(20) : [];
+  const ma50 = showMA50 ? movingAverage(50) : [];
+  const formatVolume = (value: number) => {
+    const abs = Math.abs(value);
+    if (abs >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`;
+    if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+    if (abs >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+    return `${Math.round(value)}`;
+  };
+
+  const hoverPoint = hoverIndex !== null ? points[hoverIndex] : null;
+  const hoverX = hoverIndex !== null ? scaleX(hoverIndex) : null;
+  const hoverY = hoverPoint ? scaleY(hoverPoint.close) : null;
+
+  const renderLine = (linePoints: { x: number; y: number }[], stroke: string) =>
+    linePoints.length > 0 ? (
+      <polyline
+        fill="none"
+        stroke={stroke}
+        strokeWidth="1.8"
+        points={linePoints.map((p) => `${p.x},${p.y}`).join(" ")}
+      />
+    ) : null;
+
+  const ma20Line =
+    showMA20 && ma20.length
+      ? ma20
+          .map((value, idx) => (value === null ? null : { x: scaleX(idx), y: scaleY(value) }))
+          .filter((p): p is { x: number; y: number } => Boolean(p))
+      : [];
+  const ma50Line =
+    showMA50 && ma50.length
+      ? ma50
+          .map((value, idx) => (value === null ? null : { x: scaleX(idx), y: scaleY(value) }))
+          .filter((p): p is { x: number; y: number } => Boolean(p))
+      : [];
+
+  const benchmarkLine =
+    benchmarkSeries && benchmarkSeries.points.length === points.length
+      ? benchmarkSeries.points.map((p, idx) => ({ x: scaleX(idx), y: scaleY(p.close) }))
+      : [];
+
+  const rsiScaleY = (v: number) =>
+    chartHeight + rsiHeight - 20 - (v / 100) * (rsiHeight - 40);
+
+  return (
+    <div className="chart-modal-chart">
+      <div className="chart-stage" ref={containerRef}>
+        <svg
+          width={width}
+          height={height}
+          onMouseMove={(event) => {
+            const rect = containerRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            const x = event.clientX - rect.left;
+            const ratio = (x - padding) / Math.max(width - padding * 2, 1);
+            const index = Math.min(
+              points.length - 1,
+              Math.max(0, Math.round(ratio * (points.length - 1))),
+            );
+            setHoverIndex(index);
+          }}
+          onMouseLeave={() => setHoverIndex(null)}
+        >
+          <rect x={0} y={0} width={width} height={height} fill="transparent" />
+          <line
+            x1={padding}
+            y1={chartHeight - padding}
+            x2={width - padding}
+            y2={chartHeight - padding}
+            stroke="rgba(148,163,184,0.3)"
+            strokeWidth={1}
+          />
+          <line
+            x1={padding}
+            y1={padding}
+            x2={padding}
+            y2={chartHeight - padding}
+            stroke="rgba(148,163,184,0.3)"
+            strokeWidth={1}
+          />
+          {renderLine(
+            points.map((p, idx) => ({ x: scaleX(idx), y: scaleY(p.close) })),
+            "#38bdf8",
+          )}
+          {benchmarkLine.length > 0 ? renderLine(benchmarkLine, "rgba(148,163,184,0.6)") : null}
+          {renderLine(ma20Line, "rgba(34,197,94,0.9)")}
+          {renderLine(ma50Line, "rgba(250,204,21,0.9)")}
+          {hoverX !== null && hoverY !== null ? (
+            <>
+              <line
+                x1={hoverX}
+                y1={padding}
+                x2={hoverX}
+                y2={chartHeight - padding}
+                stroke="rgba(226,232,240,0.5)"
+                strokeDasharray="4 4"
+              />
+              <line
+                x1={padding}
+                y1={hoverY}
+                x2={width - padding}
+                y2={hoverY}
+                stroke="rgba(226,232,240,0.35)"
+                strokeDasharray="4 4"
+              />
+              <circle cx={hoverX} cy={hoverY} r={4} fill="#38bdf8" />
+            </>
+          ) : null}
+          {showRSI ? (
+            <>
+              <line
+                x1={padding}
+                y1={chartHeight + 10}
+                x2={width - padding}
+                y2={chartHeight + 10}
+                stroke="rgba(148,163,184,0.2)"
+              />
+              <line
+                x1={padding}
+                y1={chartHeight + rsiHeight - 10}
+                x2={width - padding}
+                y2={chartHeight + rsiHeight - 10}
+                stroke="rgba(148,163,184,0.2)"
+              />
+              {renderLine(
+                rsi
+                  .map((value, idx) =>
+                    value === null ? null : { x: scaleX(idx), y: rsiScaleY(value) },
+                  )
+                  .filter((p): p is { x: number; y: number } => Boolean(p)),
+                "rgba(244,114,182,0.9)",
+              )}
+              <line
+                x1={padding}
+                y1={rsiScaleY(70)}
+                x2={width - padding}
+                y2={rsiScaleY(70)}
+                stroke="rgba(248,113,113,0.4)"
+                strokeDasharray="6 4"
+              />
+              <line
+                x1={padding}
+                y1={rsiScaleY(30)}
+                x2={width - padding}
+                y2={rsiScaleY(30)}
+                stroke="rgba(34,197,94,0.4)"
+                strokeDasharray="6 4"
+              />
+              {hoverX !== null && hoverIndex !== null && rsi[hoverIndex] ? (
+                <circle cx={hoverX} cy={rsiScaleY(rsi[hoverIndex] as number)} r={3} fill="#f472b6" />
+              ) : null}
+            </>
+          ) : null}
+        </svg>
+        {hoverPoint ? (
+          <div className="chart-tooltip" style={{ left: hoverX ?? 0, top: hoverY ?? 0 }}>
+            <div className="chart-tooltip-title">{hoverPoint.date}</div>
+            <div>Close: {hoverPoint.close.toFixed(2)}</div>
+            <div>
+              Open:{" "}
+              {hoverPoint.open !== null && hoverPoint.open !== undefined
+                ? hoverPoint.open.toFixed(2)
+                : "-"}
+            </div>
+            <div>
+              High:{" "}
+              {hoverPoint.high !== null && hoverPoint.high !== undefined
+                ? hoverPoint.high.toFixed(2)
+                : "-"}
+            </div>
+            <div>
+              Low:{" "}
+              {hoverPoint.low !== null && hoverPoint.low !== undefined
+                ? hoverPoint.low.toFixed(2)
+                : "-"}
+            </div>
+            <div>Volume: {hoverPoint.volume ? formatVolume(hoverPoint.volume) : "-"}</div>
+          </div>
+        ) : null}
+      </div>
+      <div className="chart-legend">
+        <span className="legend-item">Price</span>
+        {showMA20 ? <span className="legend-item">MA20</span> : null}
+        {showMA50 ? <span className="legend-item">MA50</span> : null}
+        {benchmarkLine.length > 0 ? (
+          <span className="legend-item">Benchmark</span>
+        ) : null}
+        {showRSI ? <span className="legend-item">RSI 14</span> : null}
+      </div>
+    </div>
   );
 }
 export default App;
