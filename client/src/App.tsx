@@ -45,14 +45,37 @@ type AnalyzeResultRow = {
 type FundamentalsQuarter = {
   periodEnd: string;
   revenue?: number | null;
+  grossProfit?: number | null;
+  operatingIncome?: number | null;
   netIncome?: number | null;
   eps?: number | null;
   cash?: number | null;
   debt?: number | null;
   netCash?: number | null;
+  totalAssets?: number | null;
+  totalLiabilities?: number | null;
+  sharesOutstanding?: number | null;
   epsTtm?: number | null;
   peTtm?: number | null;
   priceAsOf?: string | null;
+  priceClose?: number | null;
+};
+
+type FundamentalsOverview = {
+  symbol: string;
+  name?: string | null;
+  exchange?: string | null;
+  sector?: string | null;
+  industry?: string | null;
+  marketCap?: number | null;
+  description?: string | null;
+};
+
+type FundamentalsNewsItem = {
+  headline: string;
+  source: string;
+  publishedAt: string;
+  url?: string | null;
 };
 
 type FundamentalsMeta = {
@@ -66,6 +89,8 @@ type FundamentalsResponse = {
   data: {
     symbol: string;
     quarters: FundamentalsQuarter[];
+    overview?: FundamentalsOverview;
+    news?: FundamentalsNewsItem[];
     meta: FundamentalsMeta;
   };
 };
@@ -74,6 +99,8 @@ type FundamentalsState = {
   status: "idle" | "loading" | "error" | "disabled" | "ready";
   error?: string | null;
   quarters?: FundamentalsQuarter[];
+  overview?: FundamentalsOverview;
+  news?: FundamentalsNewsItem[];
   meta?: FundamentalsMeta;
 };
 
@@ -144,6 +171,8 @@ function App() {
   const [groupInsights, setGroupInsights] = useState<GroupInsights | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
   const [fundamentalsOpen, setFundamentalsOpen] = useState<string | null>(null);
+  const [fundamentalsPopoverOpen, setFundamentalsPopoverOpen] = useState<string | null>(null);
+  const [fundamentalsClosing, setFundamentalsClosing] = useState(false);
   const [fundamentalsCache, setFundamentalsCache] = useState<Record<string, FundamentalsState>>(
     {},
   );
@@ -200,7 +229,15 @@ function App() {
     benchmark: false,
     benchmarkSymbol: "SPY",
   });
+  const [fullScreenEvents, setFullScreenEvents] = useState({
+    enabled: false,
+    momentum: true,
+    volume: true,
+    risk: true,
+  });
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const fundamentalsCloseRef = useRef<HTMLButtonElement | null>(null);
+  const fundamentalsCloseTimer = useRef<number | null>(null);
 
   const openSignalsHover = (symbol: string) => {
     if (signalsHoverTimer.current !== null) {
@@ -241,6 +278,18 @@ function App() {
   }, [fullScreenOpen]);
 
   useEffect(() => {
+    if (!fundamentalsOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeFundamentals();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [fundamentalsOpen]);
+
+  useEffect(() => {
     if (!fullScreenOpen) return;
     const { documentElement, body } = document;
     const prevOverflow = documentElement.style.overflow;
@@ -256,6 +305,23 @@ function App() {
       body.style.paddingRight = prevPaddingRight;
     };
   }, [fullScreenOpen]);
+
+  useEffect(() => {
+    if (!fundamentalsOpen) return;
+    const { documentElement, body } = document;
+    const prevOverflow = documentElement.style.overflow;
+    const prevPaddingRight = body.style.paddingRight;
+    const scrollbarWidth = window.innerWidth - documentElement.clientWidth;
+    documentElement.style.overflow = "hidden";
+    if (scrollbarWidth > 0) {
+      body.style.paddingRight = `${scrollbarWidth}px`;
+    }
+    fundamentalsCloseRef.current?.focus();
+    return () => {
+      documentElement.style.overflow = prevOverflow;
+      body.style.paddingRight = prevPaddingRight;
+    };
+  }, [fundamentalsOpen]);
 
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
   const [draftGroupName, setDraftGroupName] = useState("");
@@ -410,7 +476,7 @@ function App() {
     }));
     try {
       const res = await fetch(
-        `http://localhost:3001/api/fundamentals/${encodeURIComponent(symbol)}?limit=4`,
+        `http://localhost:3001/api/fundamentals/${encodeURIComponent(symbol)}?limit=20`,
       );
       if (!res.ok) {
         const payload = await res.json().catch(() => null);
@@ -420,12 +486,16 @@ function App() {
       }
       const payload: FundamentalsResponse = await res.json();
       const meta = payload.data?.meta;
+      const overview = payload.data?.overview;
+      const news = payload.data?.news ?? [];
       if (!meta?.providerEnabled) {
         setFundamentalsCache((prev) => ({
           ...prev,
           [symbol]: {
             status: "disabled",
             quarters: payload.data?.quarters ?? [],
+            overview,
+            news,
             meta,
           },
         }));
@@ -436,6 +506,8 @@ function App() {
         [symbol]: {
           status: "ready",
           quarters: payload.data?.quarters ?? [],
+          overview,
+          news,
           meta,
         },
       }));
@@ -451,7 +523,13 @@ function App() {
   };
 
   const openFundamentals = (symbol: string) => {
+    if (fundamentalsCloseTimer.current !== null) {
+      window.clearTimeout(fundamentalsCloseTimer.current);
+      fundamentalsCloseTimer.current = null;
+    }
+    setFundamentalsClosing(false);
     setFundamentalsOpen(symbol);
+    setFundamentalsPopoverOpen(null);
     const cached = fundamentalsCache[symbol];
     if (!cached || cached.status === "idle" || cached.status === "error") {
       loadFundamentals(symbol);
@@ -459,7 +537,27 @@ function App() {
   };
 
   const closeFundamentals = () => {
-    setFundamentalsOpen(null);
+    setFundamentalsClosing(true);
+    if (fundamentalsCloseTimer.current !== null) {
+      window.clearTimeout(fundamentalsCloseTimer.current);
+    }
+    fundamentalsCloseTimer.current = window.setTimeout(() => {
+      setFundamentalsOpen(null);
+      setFundamentalsClosing(false);
+      fundamentalsCloseTimer.current = null;
+    }, 160);
+  };
+
+  const openFundamentalsPopover = (symbol: string) => {
+    setFundamentalsPopoverOpen(symbol);
+    const cached = fundamentalsCache[symbol];
+    if (!cached || cached.status === "idle" || cached.status === "error") {
+      loadFundamentals(symbol);
+    }
+  };
+
+  const closeFundamentalsPopover = (symbol: string) => {
+    setFundamentalsPopoverOpen((prev) => (prev === symbol ? null : prev));
   };
 
   const loadValuations = async (symbols: string[]) => {
@@ -491,6 +589,40 @@ function App() {
     if (!result.length) return 0;
     return Math.max(...result.map((r) => Math.abs(r.metrics.return1M ?? 0)));
   }, [result]);
+
+  const sortQuartersAsc = (quarters: FundamentalsQuarter[]) =>
+    [...quarters].sort(
+      (a, b) => new Date(a.periodEnd).getTime() - new Date(b.periodEnd).getTime(),
+    );
+
+  const calcYoY = (latest: number | null | undefined, prior: number | null | undefined) => {
+    if (latest === null || latest === undefined || prior === null || prior === undefined) {
+      return null;
+    }
+    if (!Number.isFinite(latest) || !Number.isFinite(prior) || prior === 0) {
+      return null;
+    }
+    return ((latest - prior) / Math.abs(prior)) * 100;
+  };
+
+  const calcMargin = (value: number | null | undefined, base: number | null | undefined) => {
+    if (value === null || value === undefined || base === null || base === undefined) {
+      return null;
+    }
+    if (!Number.isFinite(value) || !Number.isFinite(base) || base === 0) {
+      return null;
+    }
+    return (value / base) * 100;
+  };
+
+  const buildTrendSeries = (quarters: FundamentalsQuarter[], valueKey: keyof FundamentalsQuarter) => {
+    const sorted = sortQuartersAsc(quarters);
+    const slice = sorted.slice(-20);
+    if (slice.length < 20) return [];
+    const values = slice.map((item) => item[valueKey] as number | null | undefined);
+    if (values.some((value) => value === null || value === undefined)) return [];
+    return values as number[];
+  };
 
   const formatPrice = (value: number | null | undefined) =>
     value === null || value === undefined ? "-" : value.toFixed(2);
@@ -530,6 +662,26 @@ function App() {
   const formatNumber2 = (value: number | null | undefined) =>
     value === null || value === undefined ? "-" : value.toFixed(2);
 
+  const missingValue = "—";
+
+  const formatDisplayNumber = (value: number | null | undefined, digits = 2) =>
+    value === null || value === undefined || !Number.isFinite(value)
+      ? missingValue
+      : value.toFixed(digits);
+
+  const formatDisplayPercent = (value: number | null | undefined, digits = 1) =>
+    value === null || value === undefined || !Number.isFinite(value)
+      ? missingValue
+      : `${value.toFixed(digits)}%`;
+
+  const formatDisplayCompact = (value: number | null | undefined) =>
+    value === null || value === undefined || !Number.isFinite(value)
+      ? missingValue
+      : formatCompact(value);
+
+  const formatDisplayText = (value: string | null | undefined) =>
+    value === null || value === undefined || value.trim() === "" ? missingValue : value;
+
   const formatMetricValue = (value: number | string | null | undefined) => {
     if (value === null || value === undefined) return "-";
     if (typeof value === "string") return value.replace(/\uFFFD/g, "-");
@@ -546,6 +698,11 @@ function App() {
     if (value <= 30) return "rsi-good";
     return "rsi-mid";
   };
+
+  const negativeClass = (value: number | null | undefined) =>
+    value !== null && value !== undefined && Number.isFinite(value) && value < 0
+      ? "is-negative"
+      : "";
 
   const formatQuarter = (periodEnd: string) => {
     const date = new Date(periodEnd);
@@ -734,9 +891,10 @@ function App() {
           low?: number | null;
           volume?: number | null;
         }[];
+        const trimmedBars = priceRange === "1d" ? bars.slice(-1) : bars;
         series.push({
           symbol: sym,
-          points: bars.map((bar) => ({
+          points: trimmedBars.map((bar) => ({
             date: bar.date,
             close: bar.close,
             open: bar.open ?? null,
@@ -1985,19 +2143,24 @@ const renderSignals = (
                         return (
                           <>
                       <td>
-                        <div className="symbol-cell" onMouseEnter={() => openFundamentals(row.symbol)} onMouseLeave={closeFundamentals}>
+                        <div
+                          className="symbol-cell"
+                          onMouseEnter={() => openFundamentalsPopover(row.symbol)}
+                          onMouseLeave={() => closeFundamentalsPopover(row.symbol)}
+                        >
                           <span>{row.symbol}</span>
                           <button
                             type="button"
                             className="fundamentals-btn"
                             title="Fundamentals"
-                            onFocus={() => openFundamentals(row.symbol)}
-                            onBlur={closeFundamentals}
+                            onClick={() => openFundamentals(row.symbol)}
+                            onFocus={() => openFundamentalsPopover(row.symbol)}
+                            onBlur={() => closeFundamentalsPopover(row.symbol)}
                             aria-label={`Fundamentals for ${row.symbol}`}
                           >
                             <BarChart4 size={20} aria-hidden="true" />
                           </button>
-                          {fundamentalsOpen === row.symbol && (
+                          {fundamentalsPopoverOpen === row.symbol && (
                             <div
                               className="fundamentals-popover"
                               role="dialog"
@@ -2063,7 +2226,7 @@ const renderSignals = (
                                         </tr>
                                       </thead>
                                       <tbody>
-                                        {quarters.map((q) => (
+                                        {quarters.slice(0, 4).map((q) => (
                                           <tr key={q.periodEnd}>
                                             <td>{formatQuarter(q.periodEnd)}</td>
                                             <td>{formatCompact(q.revenue)}</td>
@@ -2252,6 +2415,349 @@ const renderSignals = (
         </section>
         </div>
       </main>
+      {fundamentalsOpen ? (
+        <div
+          className={`fundamentals-overlay ${fundamentalsClosing ? "is-closing" : ""}`}
+          role="presentation"
+        >
+          <div
+            className={`fundamentals-panel ${fundamentalsClosing ? "is-closing" : ""}`}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Fundamentals for ${fundamentalsOpen}`}
+          >
+            {(() => {
+              const state = fundamentalsCache[fundamentalsOpen];
+              const overview = state?.overview;
+              const quarters = state?.quarters ?? [];
+              const sortedQuarters = sortQuartersAsc(quarters);
+              const latestQuarter = sortedQuarters[sortedQuarters.length - 1];
+              const priorYearQuarter =
+                sortedQuarters.length >= 5
+                  ? sortedQuarters[sortedQuarters.length - 5]
+                  : undefined;
+              const sector = formatDisplayText(overview?.sector);
+              const industry = formatDisplayText(overview?.industry);
+              const sectorIndustry =
+                sector !== missingValue && industry !== missingValue
+                  ? `${sector} → ${industry}`
+                  : sector !== missingValue
+                    ? sector
+                    : industry !== missingValue
+                      ? industry
+                      : missingValue;
+              const marketCap = overview?.marketCap ?? null;
+              const trailingPe =
+                valuationsCache[fundamentalsOpen]?.trailingPe ?? latestQuarter?.peTtm ?? null;
+              const forwardPe = valuationsCache[fundamentalsOpen]?.forwardPe ?? null;
+              const ttmRevenue = (() => {
+                if (sortedQuarters.length < 4) return null;
+                const recent = sortedQuarters.slice(-4);
+                if (recent.some((q) => q.revenue === null || q.revenue === undefined)) {
+                  return null;
+                }
+                return recent.reduce((sum, q) => sum + (q.revenue ?? 0), 0);
+              })();
+              const priceToSales =
+                marketCap !== null && marketCap !== undefined && ttmRevenue
+                  ? marketCap / ttmRevenue
+                  : null;
+              const revenueYoY = calcYoY(latestQuarter?.revenue, priorYearQuarter?.revenue);
+              const epsYoY = calcYoY(latestQuarter?.eps, priorYearQuarter?.eps);
+              const grossMargin = calcMargin(latestQuarter?.grossProfit, latestQuarter?.revenue);
+              const operatingMargin = calcMargin(
+                latestQuarter?.operatingIncome,
+                latestQuarter?.revenue,
+              );
+              const netMargin = calcMargin(latestQuarter?.netIncome, latestQuarter?.revenue);
+              const equity =
+                latestQuarter?.totalAssets !== null &&
+                latestQuarter?.totalAssets !== undefined &&
+                latestQuarter?.totalLiabilities !== null &&
+                latestQuarter?.totalLiabilities !== undefined
+                  ? latestQuarter.totalAssets - latestQuarter.totalLiabilities
+                  : null;
+              const roe = equity ? calcMargin(latestQuarter?.netIncome, equity) : null;
+              const totalCash = latestQuarter?.cash ?? null;
+              const totalDebt = latestQuarter?.debt ?? null;
+              const netDebt =
+                totalDebt !== null && totalDebt !== undefined && totalCash !== null && totalCash !== undefined
+                  ? totalDebt - totalCash
+                  : null;
+              const netCash =
+                netDebt !== null && netDebt !== undefined && netDebt < 0 ? Math.abs(netDebt) : null;
+              const debtToEquity =
+                totalDebt !== null &&
+                totalDebt !== undefined &&
+                equity !== null &&
+                equity !== undefined &&
+                equity !== 0
+                  ? totalDebt / equity
+                  : null;
+              const revenueSeries = buildTrendSeries(quarters, "revenue");
+              const epsSeries = buildTrendSeries(quarters, "eps");
+              const operatingMarginSeries = (() => {
+                const sorted = sortQuartersAsc(quarters).slice(-20);
+                if (sorted.length < 20) return [];
+                const values = sorted.map((q) => {
+                  if (q.operatingIncome === null || q.operatingIncome === undefined) return null;
+                  if (q.revenue === null || q.revenue === undefined || q.revenue === 0) return null;
+                  return (q.operatingIncome / q.revenue) * 100;
+                });
+                if (values.some((value) => value === null || value === undefined)) return [];
+                return values as number[];
+              })();
+              const newsItems = (state?.news ?? [])
+                .slice()
+                .sort((a, b) => {
+                  const timeA = new Date(a.publishedAt).getTime();
+                  const timeB = new Date(b.publishedAt).getTime();
+                  return (Number.isFinite(timeB) ? timeB : 0) - (Number.isFinite(timeA) ? timeA : 0);
+                })
+                .slice(0, 5);
+              const displayNews =
+                newsItems.length > 0
+                  ? newsItems
+                  : [
+                      {
+                        headline: missingValue,
+                        source: missingValue,
+                        publishedAt: missingValue,
+                        url: null,
+                      },
+                    ];
+              const formatPublishedDate = (value: string) => {
+                const date = new Date(value);
+                if (Number.isNaN(date.getTime())) return value;
+                return date.toLocaleDateString();
+              };
+              return (
+                <>
+                  <div className="fundamentals-panel-header">
+                    <div className="fundamentals-company">
+                      <div className="fundamentals-company-name">
+                        {formatDisplayText(overview?.name)}
+                      </div>
+                      <div className="fundamentals-ticker-line">
+                        {fundamentalsOpen} • {formatDisplayText(overview?.exchange)}
+                      </div>
+                      <div className="fundamentals-sector-line">{sectorIndustry}</div>
+                    </div>
+                    <div className="fundamentals-market-cap">
+                      <div className="fundamentals-market-label">Market Cap</div>
+                      <div className="fundamentals-market-value">
+                        {formatDisplayCompact(overview?.marketCap)}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="fundamentals-close-btn"
+                      onClick={closeFundamentals}
+                      aria-label="Close fundamentals"
+                      ref={fundamentalsCloseRef}
+                    >
+                      <X size={18} aria-hidden="true" />
+                    </button>
+                  </div>
+                  <div className="fundamentals-description">
+                    {formatDisplayText(overview?.description)}
+                  </div>
+                  {(() => {
+                    if (!state || state.status === "loading" || state.status === "idle") {
+                      return <div className="fundamentals-status">Loading fundamentals...</div>;
+                    }
+                    if (state.status === "disabled") {
+                      return <div className="fundamentals-status">Fundamentals not configured</div>;
+                    }
+                    if (state.status === "error") {
+                      return (
+                        <div className="fundamentals-status error">
+                          {state.error ?? "Failed to load fundamentals"}
+                        </div>
+                      );
+                    }
+                    if (quarters.length === 0) {
+                      return <div className="fundamentals-status">No fundamentals yet.</div>;
+                    }
+                    return (
+                      <div className="fundamentals-content">
+                        <div className="fundamentals-grid">
+                          <div className="fundamentals-section">
+                            <div className="fundamentals-section-title">Valuation</div>
+                            <div className="fundamentals-metrics">
+                              <div className="fundamentals-metric">
+                                <div className="metric-label">Market Cap</div>
+                                <div className="metric-value">
+                                  {formatDisplayCompact(marketCap)}
+                                </div>
+                              </div>
+                              <div className="fundamentals-metric">
+                                <div className="metric-label">P/E (TTM)</div>
+                                <div className="metric-value">
+                                  {formatDisplayNumber(trailingPe, 1)}
+                                </div>
+                              </div>
+                              <div className="fundamentals-metric">
+                                <div className="metric-label">P/E (Forward)</div>
+                                <div className="metric-value">
+                                  {formatDisplayNumber(forwardPe, 1)}
+                                </div>
+                              </div>
+                              <div className="fundamentals-metric">
+                                <div className="metric-label">EV / EBITDA</div>
+                                <div className="metric-value">{missingValue}</div>
+                              </div>
+                              <div className="fundamentals-metric">
+                                <div className="metric-label">Price / Sales</div>
+                                <div className="metric-value">
+                                  {formatDisplayNumber(priceToSales, 2)}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="fundamentals-section">
+                            <div className="fundamentals-section-title">Growth</div>
+                            <div className="fundamentals-metrics">
+                              <div className="fundamentals-metric">
+                                <div className="metric-label">Revenue YoY (%)</div>
+                                <div className={`metric-value ${negativeClass(revenueYoY)}`}>
+                                  {formatDisplayPercent(revenueYoY, 1)}
+                                </div>
+                              </div>
+                              <div className="fundamentals-metric">
+                                <div className="metric-label">EPS YoY (%)</div>
+                                <div className={`metric-value ${negativeClass(epsYoY)}`}>
+                                  {formatDisplayPercent(epsYoY, 1)}
+                                </div>
+                              </div>
+                              <div className="fundamentals-metric">
+                                <div className="metric-label">Free Cash Flow Growth (%)</div>
+                                <div className="metric-value">{missingValue}</div>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="fundamentals-section">
+                            <div className="fundamentals-section-title">Profitability</div>
+                            <div className="fundamentals-metrics">
+                              <div className="fundamentals-metric">
+                                <div className="metric-label">Gross Margin (%)</div>
+                                <div className={`metric-value ${negativeClass(grossMargin)}`}>
+                                  {formatDisplayPercent(grossMargin, 1)}
+                                </div>
+                              </div>
+                              <div className="fundamentals-metric">
+                                <div className="metric-label">Operating Margin (%)</div>
+                                <div className={`metric-value ${negativeClass(operatingMargin)}`}>
+                                  {formatDisplayPercent(operatingMargin, 1)}
+                                </div>
+                              </div>
+                              <div className="fundamentals-metric">
+                                <div className="metric-label">Net Margin (%)</div>
+                                <div className={`metric-value ${negativeClass(netMargin)}`}>
+                                  {formatDisplayPercent(netMargin, 1)}
+                                </div>
+                              </div>
+                              <div className="fundamentals-metric">
+                                <div className="metric-label">ROE (%)</div>
+                                <div className={`metric-value ${negativeClass(roe)}`}>
+                                  {formatDisplayPercent(roe, 1)}
+                                </div>
+                              </div>
+                              <div className="fundamentals-metric">
+                                <div className="metric-label">ROIC (%)</div>
+                                <div className="metric-value">{missingValue}</div>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="fundamentals-section">
+                            <div className="fundamentals-section-title">Balance Sheet</div>
+                            <div className="fundamentals-metrics">
+                              <div className="fundamentals-metric">
+                                <div className="metric-label">Total Cash</div>
+                                <div className="metric-value">
+                                  {formatDisplayCompact(totalCash)}
+                                </div>
+                              </div>
+                              <div className="fundamentals-metric">
+                                <div className="metric-label">Total Debt</div>
+                                <div className="metric-value">
+                                  {formatDisplayCompact(totalDebt)}
+                                </div>
+                              </div>
+                              <div className="fundamentals-metric">
+                                <div className="metric-label">
+                                  {netCash !== null ? "Net Cash" : "Net Debt"}
+                                </div>
+                                <div
+                                  className={`metric-value ${netCash !== null ? "is-positive" : ""}`}
+                                >
+                                  {netCash !== null
+                                    ? formatDisplayCompact(netCash)
+                                    : formatDisplayCompact(netDebt)}
+                                </div>
+                              </div>
+                              <div className="fundamentals-metric">
+                                <div className="metric-label">Debt / Equity</div>
+                                <div className={`metric-value ${negativeClass(debtToEquity)}`}>
+                                  {formatDisplayNumber(debtToEquity, 2)}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        {(revenueSeries.length > 0 ||
+                          epsSeries.length > 0 ||
+                          operatingMarginSeries.length > 0) && (
+                          <div className="fundamentals-trends">
+                            {revenueSeries.length > 0 && (
+                              <div className="fundamentals-trend">
+                                <div className="trend-title">Revenue (5Y)</div>
+                                <MiniTrendChart data={revenueSeries} />
+                              </div>
+                            )}
+                            {epsSeries.length > 0 && (
+                              <div className="fundamentals-trend">
+                                <div className="trend-title">EPS (5Y)</div>
+                                <MiniTrendChart data={epsSeries} />
+                              </div>
+                            )}
+                            {operatingMarginSeries.length > 0 && (
+                              <div className="fundamentals-trend">
+                                <div className="trend-title">Operating Margin (5Y)</div>
+                                <MiniTrendChart data={operatingMarginSeries} />
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        <div className="fundamentals-news">
+                          <div className="fundamentals-section-title">News</div>
+                          <div className="news-list">
+                            {displayNews.map((item, index) => (
+                              <div className="news-item" key={`${item.headline}-${index}`}>
+                                {item.url ? (
+                                  <a href={item.url} target="_blank" rel="noreferrer">
+                                    {item.headline}
+                                  </a>
+                                ) : (
+                                  <span>{item.headline}</span>
+                                )}
+                                <div className="news-meta">
+                                  <span>{item.source}</span>
+                                  <span>{formatPublishedDate(item.publishedAt)}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      ) : null}
       {fullScreenOpen && fullScreenSymbol ? (
         <div
           className="chart-modal"
@@ -2355,6 +2861,63 @@ const renderSignals = (
                     </select>
                   ) : null}
                 </div>
+                <div className="chart-event-group">
+                  <label className="chart-toggle">
+                    <input
+                      type="checkbox"
+                      checked={fullScreenEvents.enabled}
+                      onChange={(event) =>
+                        setFullScreenEvents((prev) => ({
+                          ...prev,
+                          enabled: event.target.checked,
+                        }))
+                      }
+                    />
+                    Show technical events
+                  </label>
+                  <label className="chart-toggle">
+                    <input
+                      type="checkbox"
+                      checked={fullScreenEvents.momentum}
+                      disabled={!fullScreenEvents.enabled}
+                      onChange={(event) =>
+                        setFullScreenEvents((prev) => ({
+                          ...prev,
+                          momentum: event.target.checked,
+                        }))
+                      }
+                    />
+                    Momentum
+                  </label>
+                  <label className="chart-toggle">
+                    <input
+                      type="checkbox"
+                      checked={fullScreenEvents.volume}
+                      disabled={!fullScreenEvents.enabled}
+                      onChange={(event) =>
+                        setFullScreenEvents((prev) => ({
+                          ...prev,
+                          volume: event.target.checked,
+                        }))
+                      }
+                    />
+                    Volume
+                  </label>
+                  <label className="chart-toggle">
+                    <input
+                      type="checkbox"
+                      checked={fullScreenEvents.risk}
+                      disabled={!fullScreenEvents.enabled}
+                      onChange={(event) =>
+                        setFullScreenEvents((prev) => ({
+                          ...prev,
+                          risk: event.target.checked,
+                        }))
+                      }
+                    />
+                    Risk
+                  </label>
+                </div>
                 <button
                   type="button"
                   className="chart-close-btn"
@@ -2376,12 +2939,51 @@ const renderSignals = (
                 showMA20={fullScreenIndicators.ma20}
                 showMA50={fullScreenIndicators.ma50}
                 showRSI={fullScreenIndicators.rsi}
+                showEvents={fullScreenEvents.enabled}
+                eventFilters={{
+                  momentum: fullScreenEvents.momentum,
+                  volume: fullScreenEvents.volume,
+                  risk: fullScreenEvents.risk,
+                }}
               />
             </div>
           </div>
         </div>
       ) : null}
     </div>
+  );
+}
+
+function MiniTrendChart({ data }: { data: number[] }) {
+  const width = 180;
+  const height = 48;
+  if (!data.length) return null;
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const range = max - min || 1;
+  const padding = 6;
+  const points = data.map((value, index) => {
+    const x = padding + (index / (data.length - 1)) * (width - padding * 2);
+    const y = height - padding - ((value - min) / range) * (height - padding * 2);
+    return `${x},${y}`;
+  });
+  return (
+    <svg width={width} height={height} className="mini-trend-chart" role="img">
+      <line
+        x1={padding}
+        x2={width - padding}
+        y1={height / 2}
+        y2={height / 2}
+        stroke="rgba(148, 163, 184, 0.2)"
+        strokeWidth="1"
+      />
+      <polyline
+        points={points.join(" ")}
+        fill="none"
+        stroke="rgba(56, 189, 248, 0.9)"
+        strokeWidth="2"
+      />
+    </svg>
   );
 }
 
@@ -2639,6 +3241,8 @@ function FullScreenChart({
   showMA20,
   showMA50,
   showRSI,
+  showEvents,
+  eventFilters,
 }: {
   series: {
     symbol: string;
@@ -2656,10 +3260,26 @@ function FullScreenChart({
   showMA20: boolean;
   showMA50: boolean;
   showRSI: boolean;
+  showEvents: boolean;
+  eventFilters: { momentum: boolean; volume: boolean; risk: boolean };
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [chartSize, setChartSize] = useState({ width: 960, height: 420 });
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const [eventHover, setEventHover] = useState<null | {
+    id: string;
+    index: number;
+    category: "momentum" | "volume" | "risk";
+    title: string;
+    value: string;
+    explanation: string;
+  }>(null);
+
+  useEffect(() => {
+    if (!showEvents) {
+      setEventHover(null);
+    }
+  }, [showEvents]);
 
   useEffect(() => {
     const updateSize = () => {
@@ -2674,12 +3294,14 @@ function FullScreenChart({
   }, []);
 
   const primarySeries = series.find((s) => s.symbol === symbol) ?? series[0];
-  if (!primarySeries || primarySeries.points.length === 0) return null;
-
   const benchmarkSeries = benchmarkSymbol
     ? series.find((s) => s.symbol === benchmarkSymbol)
     : undefined;
-  const points = primarySeries.points;
+  const points = primarySeries?.points ?? [];
+  useEffect(() => {
+    setHoverIndex(null);
+    setEventHover(null);
+  }, [points.length]);
   const width = chartSize.width;
   const height = chartSize.height;
   const padding = 48;
@@ -2687,8 +3309,8 @@ function FullScreenChart({
   const rsiHeight = Math.max(110, height * 0.22);
   const maxPoints = points.length;
   const closes = points.map((p) => p.close);
-  const minY = Math.min(...closes);
-  const maxY = Math.max(...closes);
+  const minY = closes.length ? Math.min(...closes) : 0;
+  const maxY = closes.length ? Math.max(...closes) : 0;
   const scaleX = (i: number) =>
     padding + (i / Math.max(maxPoints - 1, 1)) * (width - padding * 2);
   const scaleY = (v: number) =>
@@ -2734,8 +3356,8 @@ function FullScreenChart({
     return [null, ...values];
   })();
 
-  const ma20 = showMA20 ? movingAverage(20) : [];
-  const ma50 = showMA50 ? movingAverage(50) : [];
+  const ma20 = movingAverage(20);
+  const ma50 = movingAverage(50);
   const formatVolume = (value: number) => {
     const abs = Math.abs(value);
     if (abs >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`;
@@ -2744,9 +3366,227 @@ function FullScreenChart({
     return `${Math.round(value)}`;
   };
 
+  const allEvents = useMemo(() => {
+    if (points.length === 0) return [];
+    const events: {
+      id: string;
+      index: number;
+      category: "momentum" | "volume" | "risk";
+      title: string;
+      value: string;
+      explanation: string;
+    }[] = [];
+    const pushEvent = (
+      index: number,
+      category: "momentum" | "volume" | "risk",
+      title: string,
+      value: string,
+      explanation: string,
+    ) => {
+      events.push({
+        id: `${title}-${index}-${category}`,
+        index,
+        category,
+        title,
+        value,
+        explanation,
+      });
+    };
+
+    for (let i = 1; i < points.length; i += 1) {
+      const currentRsi = rsi[i];
+      const prevRsi = rsi[i - 1];
+      if (currentRsi !== null && prevRsi !== null) {
+        if (prevRsi < 70 && currentRsi >= 70) {
+          pushEvent(
+            i,
+            "momentum",
+            "RSI crossed 70",
+            `RSI ${currentRsi.toFixed(1)}`,
+            "RSI moved into the overbought band.",
+          );
+        }
+        if (prevRsi > 30 && currentRsi <= 30) {
+          pushEvent(
+            i,
+            "momentum",
+            "RSI crossed 30",
+            `RSI ${currentRsi.toFixed(1)}`,
+            "RSI moved into the oversold band.",
+          );
+        }
+      }
+    }
+
+    const volumeWindow = 20;
+    for (let i = volumeWindow; i < points.length; i += 1) {
+      const window = points.slice(i - volumeWindow, i);
+      const baseline = window
+        .map((p) => p.volume)
+        .filter((v): v is number => v !== null && v !== undefined);
+      if (!baseline.length) continue;
+      const avg = baseline.reduce((acc, v) => acc + v, 0) / baseline.length;
+      const volume = points[i].volume ?? null;
+      if (volume && avg > 0 && volume / avg >= 1.8) {
+        pushEvent(
+          i,
+          "volume",
+          "Volume spike",
+          `Vol ${formatVolume(volume)} (${(volume / avg).toFixed(1)}x)`,
+          "Volume jumped vs the 20-day baseline.",
+        );
+      }
+    }
+
+    const momentumWindow = 20;
+    let prevRegime: "positive" | "negative" | null = null;
+    for (let i = momentumWindow; i < points.length; i += 1) {
+      const base = points[i - momentumWindow]?.close ?? null;
+      if (!base) continue;
+      const mom = (points[i].close - base) / base;
+      const regime = mom >= 0 ? "positive" : "negative";
+      if (prevRegime && prevRegime !== regime) {
+        pushEvent(
+          i,
+          "momentum",
+          "Momentum regime shift",
+          `20D ${(mom * 100).toFixed(1)}%`,
+          `Momentum flipped ${regime}.`,
+        );
+      }
+      prevRegime = regime;
+    }
+
+    for (let i = 1; i < points.length; i += 1) {
+      if (ma20[i] !== null && ma20[i - 1] !== null) {
+        const prev = points[i - 1].close - (ma20[i - 1] as number);
+        const curr = points[i].close - (ma20[i] as number);
+        if (prev <= 0 && curr > 0) {
+          pushEvent(
+            i,
+            "momentum",
+            "Price crossed MA20",
+            `Close ${points[i].close.toFixed(2)} | MA20 ${(ma20[i] as number).toFixed(2)}`,
+            "Price moved above the 20-day average.",
+          );
+        }
+        if (prev >= 0 && curr < 0) {
+          pushEvent(
+            i,
+            "momentum",
+            "Price crossed MA20",
+            `Close ${points[i].close.toFixed(2)} | MA20 ${(ma20[i] as number).toFixed(2)}`,
+            "Price fell below the 20-day average.",
+          );
+        }
+      }
+      if (ma50[i] !== null && ma50[i - 1] !== null) {
+        const prev = points[i - 1].close - (ma50[i - 1] as number);
+        const curr = points[i].close - (ma50[i] as number);
+        if (prev <= 0 && curr > 0) {
+          pushEvent(
+            i,
+            "momentum",
+            "Price crossed MA50",
+            `Close ${points[i].close.toFixed(2)} | MA50 ${(ma50[i] as number).toFixed(2)}`,
+            "Price moved above the 50-day average.",
+          );
+        }
+        if (prev >= 0 && curr < 0) {
+          pushEvent(
+            i,
+            "momentum",
+            "Price crossed MA50",
+            `Close ${points[i].close.toFixed(2)} | MA50 ${(ma50[i] as number).toFixed(2)}`,
+            "Price fell below the 50-day average.",
+          );
+        }
+      }
+    }
+
+    const pivotWindow = 3;
+    for (let i = pivotWindow; i < points.length - pivotWindow; i += 1) {
+      const slice = points.slice(i - pivotWindow, i + pivotWindow + 1).map((p) => p.close);
+      const max = Math.max(...slice);
+      const min = Math.min(...slice);
+      if (points[i].close === max) {
+        pushEvent(
+          i,
+          "momentum",
+          "Local high",
+          `High ${points[i].close.toFixed(2)}`,
+          "Local peak over the surrounding sessions.",
+        );
+      }
+      if (points[i].close === min) {
+        pushEvent(
+          i,
+          "momentum",
+          "Local low",
+          `Low ${points[i].close.toFixed(2)}`,
+          "Local trough over the surrounding sessions.",
+        );
+      }
+    }
+
+    if (points.length > 0) {
+      let peak = points[0].close;
+      let maxDrawdown = 0;
+      let maxDrawdownIndex = 0;
+      for (let i = 0; i < points.length; i += 1) {
+        if (points[i].close > peak) {
+          peak = points[i].close;
+        }
+        const drawdown = (points[i].close - peak) / peak;
+        if (drawdown < maxDrawdown) {
+          maxDrawdown = drawdown;
+          maxDrawdownIndex = i;
+        }
+      }
+      if (maxDrawdownIndex > 0) {
+        pushEvent(
+          maxDrawdownIndex,
+          "risk",
+          "Max drawdown",
+          `Drawdown ${(maxDrawdown * 100).toFixed(1)}%`,
+          "Largest peak-to-trough decline in this range.",
+        );
+      }
+    }
+
+    return events;
+  }, [points, rsi, ma20, ma50]);
+
+  const visibleEvents = useMemo(() => {
+    if (!showEvents) return [];
+    const filtered = allEvents.filter((event) => {
+      if (event.category === "momentum" && !eventFilters.momentum) return false;
+      if (event.category === "volume" && !eventFilters.volume) return false;
+      if (event.category === "risk" && !eventFilters.risk) return false;
+      return true;
+    });
+    const minGap = Math.max(2, Math.floor(points.length / 80));
+    const sorted = filtered.sort((a, b) => a.index - b.index);
+    const output: typeof filtered = [];
+    let lastIndex = -Infinity;
+    for (const event of sorted) {
+      if (event.title === "Max drawdown") {
+        output.push(event);
+        lastIndex = event.index;
+        continue;
+      }
+      if (event.index - lastIndex >= minGap) {
+        output.push(event);
+        lastIndex = event.index;
+      }
+    }
+    return output;
+  }, [allEvents, showEvents, eventFilters, points.length]);
+
   const hoverPoint = hoverIndex !== null ? points[hoverIndex] : null;
   const hoverX = hoverIndex !== null ? scaleX(hoverIndex) : null;
   const hoverY = hoverPoint ? scaleY(hoverPoint.close) : null;
+  const tooltipFlip = hoverX !== null && hoverX > width - 220;
 
   const renderLine = (linePoints: { x: number; y: number }[], stroke: string) =>
     linePoints.length > 0 ? (
@@ -2779,6 +3619,8 @@ function FullScreenChart({
   const rsiScaleY = (v: number) =>
     chartHeight + rsiHeight - 20 - (v / 100) * (rsiHeight - 40);
 
+  if (!primarySeries || points.length === 0) return null;
+
   return (
     <div className="chart-modal-chart">
       <div className="chart-stage" ref={containerRef}>
@@ -2786,6 +3628,7 @@ function FullScreenChart({
           width={width}
           height={height}
           onMouseMove={(event) => {
+            if (points.length === 0) return;
             const rect = containerRef.current?.getBoundingClientRect();
             if (!rect) return;
             const x = event.clientX - rect.left;
@@ -2796,7 +3639,10 @@ function FullScreenChart({
             );
             setHoverIndex(index);
           }}
-          onMouseLeave={() => setHoverIndex(null)}
+          onMouseLeave={() => {
+            setHoverIndex(null);
+            setEventHover(null);
+          }}
         >
           <rect x={0} y={0} width={width} height={height} fill="transparent" />
           <line
@@ -2843,6 +3689,29 @@ function FullScreenChart({
               <circle cx={hoverX} cy={hoverY} r={4} fill="#38bdf8" />
             </>
           ) : null}
+          {visibleEvents.map((event) => {
+            const point = points[event.index];
+            if (!point) return null;
+            const x = scaleX(event.index);
+            const y = scaleY(point.close);
+            const markerClass = `chart-event-marker event-${event.category}`;
+            return (
+              <g
+                key={event.id}
+                onMouseEnter={() => setEventHover(event)}
+                onMouseLeave={() => setEventHover(null)}
+              >
+                {event.category === "risk" ? (
+                  <polygon
+                    points={`${x},${y - 5} ${x - 5},${y + 4} ${x + 5},${y + 4}`}
+                    className={markerClass}
+                  />
+                ) : (
+                  <circle cx={x} cy={y} r={4} className={markerClass} />
+                )}
+              </g>
+            );
+          })}
           {showRSI ? (
             <>
               <line
@@ -2889,40 +3758,59 @@ function FullScreenChart({
             </>
           ) : null}
         </svg>
-        {hoverPoint ? (
-          <div className="chart-tooltip" style={{ left: hoverX ?? 0, top: hoverY ?? 0 }}>
-            <div className="chart-tooltip-title">{hoverPoint.date}</div>
-            <div>Close: {hoverPoint.close.toFixed(2)}</div>
-            <div>
-              Open:{" "}
-              {hoverPoint.open !== null && hoverPoint.open !== undefined
-                ? hoverPoint.open.toFixed(2)
-                : "-"}
-            </div>
-            <div>
-              High:{" "}
-              {hoverPoint.high !== null && hoverPoint.high !== undefined
-                ? hoverPoint.high.toFixed(2)
-                : "-"}
-            </div>
-            <div>
-              Low:{" "}
-              {hoverPoint.low !== null && hoverPoint.low !== undefined
-                ? hoverPoint.low.toFixed(2)
-                : "-"}
-            </div>
-            <div>Volume: {hoverPoint.volume ? formatVolume(hoverPoint.volume) : "-"}</div>
-          </div>
-        ) : null}
       </div>
+      {hoverPoint && !eventHover ? (
+        <div
+          className={`chart-tooltip${tooltipFlip ? " flip" : ""}`}
+          style={{ left: hoverX ?? 0, top: hoverY ?? 0 }}
+        >
+          <div className="chart-tooltip-title">{hoverPoint.date}</div>
+          <div>Close: {hoverPoint.close.toFixed(2)}</div>
+          <div>
+            Open:{" "}
+            {hoverPoint.open !== null && hoverPoint.open !== undefined
+              ? hoverPoint.open.toFixed(2)
+              : "-"}
+          </div>
+          <div>
+            High:{" "}
+            {hoverPoint.high !== null && hoverPoint.high !== undefined
+              ? hoverPoint.high.toFixed(2)
+              : "-"}
+          </div>
+          <div>
+            Low:{" "}
+            {hoverPoint.low !== null && hoverPoint.low !== undefined
+              ? hoverPoint.low.toFixed(2)
+              : "-"}
+          </div>
+          <div>Volume: {hoverPoint.volume ? formatVolume(hoverPoint.volume) : "-"}</div>
+        </div>
+      ) : null}
+      {eventHover && points[eventHover.index] ? (
+        <div
+          className={`chart-event-tooltip event-${eventHover.category}${
+            tooltipFlip ? " flip" : ""
+          }`}
+          style={{
+            left: scaleX(eventHover.index),
+            top: scaleY(points[eventHover.index].close),
+          }}
+        >
+          <div className="chart-tooltip-title">{eventHover.title}</div>
+          <div>{points[eventHover.index].date}</div>
+          <div>{eventHover.value}</div>
+          <div className="chart-tooltip-note">{eventHover.explanation}</div>
+        </div>
+      ) : null}
       <div className="chart-legend">
-        <span className="legend-item">Price</span>
-        {showMA20 ? <span className="legend-item">MA20</span> : null}
-        {showMA50 ? <span className="legend-item">MA50</span> : null}
+        <span className="legend-item legend-price">Price</span>
+        {showMA20 ? <span className="legend-item legend-ma20">MA20</span> : null}
+        {showMA50 ? <span className="legend-item legend-ma50">MA50</span> : null}
         {benchmarkLine.length > 0 ? (
-          <span className="legend-item">Benchmark</span>
+          <span className="legend-item legend-benchmark">Benchmark</span>
         ) : null}
-        {showRSI ? <span className="legend-item">RSI 14</span> : null}
+        {showRSI ? <span className="legend-item legend-rsi">RSI 14</span> : null}
       </div>
     </div>
   );

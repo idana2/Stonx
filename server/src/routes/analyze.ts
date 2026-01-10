@@ -42,7 +42,7 @@ const pricesQuerySchema = z.object({
 });
 
 const RANGE_DAYS: Record<z.infer<typeof pricesQuerySchema>["range"], number> = {
-  "1d": 2,
+  "1d": 7,
   "1w": 7,
   "1m": 30,
   "3m": 90,
@@ -159,17 +159,21 @@ analysisRouter.get("/prices", async (req, res) => {
   }
 
   const { symbol, range } = parsed.data;
-  const end = new Date();
-  const start = new Date(end);
-  start.setUTCDate(end.getUTCDate() - RANGE_DAYS[range]);
+  const pad2 = (value: number) => String(value).padStart(2, "0");
+  const formatLocalDate = (value: Date) =>
+    `${value.getFullYear()}-${pad2(value.getMonth() + 1)}-${pad2(value.getDate())}`;
+  const endLocal = new Date();
+  endLocal.setHours(0, 0, 0, 0);
+  const startLocal = new Date(endLocal);
+  startLocal.setDate(endLocal.getDate() - RANGE_DAYS[range]);
 
   try {
     const { bars } = await ensureBars(
       prisma,
       marketDataProvider,
       symbol,
-      start.toISOString().slice(0, 10),
-      end.toISOString().slice(0, 10),
+      formatLocalDate(startLocal),
+      formatLocalDate(endLocal),
     );
     return res.json({ data: { symbol, bars } });
   } catch (error) {
